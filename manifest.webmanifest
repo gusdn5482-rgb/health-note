@@ -1,0 +1,17 @@
+{
+  "name": "헬스 노트",
+  "short_name": "헬스 노트",
+  "description": "운동 세트, 단백질·칼로리, 체성분을 기록하는 개인 헬스 앱",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ECEFF3",
+  "theme_color": "#1F55C9",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
