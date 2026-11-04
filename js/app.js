@@ -3,7 +3,7 @@ import { num, r1, e1rm, isWorking, entryStats, prScores, recommend, plates, warm
 import { MUSCLES, PARTS, MUSCLE_PART, PART_MUSCLE, EQUIP, EQUIP_INC, TYPES } from "./exercises.js";
 import * as store from "./store.js";
 
-const APP_VERSION = "3.0.0";
+const APP_VERSION = "3.0.1";
 const { MEALS, uid, norm, getEx, allEx, partOfEx, normFoodEntry, normMyFood, normDay } = store;
 const ACTIVITY = [
   { v: 1.2, label: "거의 안 움직임 (×1.2)" }, { v: 1.375, label: "주 1–3회 운동 (×1.375)" },
@@ -209,9 +209,8 @@ function vSummary() {
     ${bar(ft.p, t.protein, "p")}
     <div class="small muted">${ft.p >= t.protein ? "오늘 목표 달성" : `${r1(t.protein - ft.p)} g 더 필요`} · 체중 ${t.w} kg × ${D().settings.gPerKg} g/kg</div>
   </section>
-  <section class="card"><div class="macros">
+  <section class="card"><div class="macros two">
     <div class="macro"><div class="k"><span class="dot" style="background:var(--carb)"></span>탄수화물</div><div class="v">${Math.round(ft.c)}<span class="small muted"> / ${Math.round(t.carbG)} g</span></div>${bar(ft.c, t.carbG, "c")}</div>
-    <div class="macro"><div class="k"><span class="dot" style="background:var(--fat)"></span>지방</div><div class="v">${Math.round(ft.f)}<span class="small muted"> / ${Math.round(t.fatG)} g</span></div>${bar(ft.f, t.fatG, "f")}</div>
     <div class="macro"><div class="k"><span class="dot" style="background:var(--accent)"></span>단백질 비율</div><div class="v">${ft.kcal ? Math.round(ft.p * 4 / ft.kcal * 100) : 0}<span class="small muted"> % kcal</span></div><div class="xs muted">${Math.round(ft.p * 4)} kcal</div></div>
   </div></section>
   <div class="sec-title">운동</div>
@@ -373,7 +372,7 @@ function vFood() {
   const groups = MEALS.map((m) => {
     const items = day.foods.filter((x) => x.meal === m.k); if (!items.length) return "";
     const st = foodTotals(items), saving = S.saveMeal === m.k;
-    return `<div class="meal-h"><span>${m.label} <span class="sub">${Math.round(st.kcal)} kcal · 단백질 ${r1(st.p)} g</span></span>
+    return `<div class="meal-h"><span>${m.label} <span class="sub">${Math.round(st.kcal)} kcal · 단백질 ${r1(st.p)} g · 탄수 ${r1(st.c)} g</span></span>
       <button class="btn sm ghost" data-act="savemeal" data-meal="${m.k}">${saving ? "취소" : "내 식사로 저장"}</button></div>
       ${saving ? `<form class="row mealForm" data-meal="${m.k}" autocomplete="off" style="padding-bottom:8px"><input id="mealName-${m.k}" type="text" class="grow" placeholder="이름 (예: 아침 단백질 세트)" required style="flex:1 1 150px"><button class="btn primary sm" type="submit">저장</button></form>` : ""}
       ${items.map((x) => {
@@ -384,9 +383,10 @@ function vFood() {
       }).join("")}`;
   }).join("");
   return `
-  <section class="card metric">
-    <div class="metric-head"><span><b>${Math.round(ft.kcal).toLocaleString()}</b> <span class="muted small">/ ${Math.round(t.kcal).toLocaleString()} kcal</span></span><span><b style="color:var(--accent)">${r1(ft.p)}</b> <span class="muted small">/ ${Math.round(t.protein)} g 단백질</span></span></div>
-    ${bar(ft.kcal, t.kcal, "")}${bar(ft.p, t.protein, "p")}
+  <section class="card stack">
+    <div class="metric"><div class="metric-head"><span class="small">칼로리</span><span><b>${Math.round(ft.kcal).toLocaleString()}</b> <span class="muted small">/ ${Math.round(t.kcal).toLocaleString()} kcal</span></span></div>${bar(ft.kcal, t.kcal, "")}</div>
+    <div class="metric"><div class="metric-head"><span class="small">단백질</span><span><b style="color:var(--accent)">${r1(ft.p)}</b> <span class="muted small">/ ${Math.round(t.protein)} g</span></span></div>${bar(ft.p, t.protein, "p")}</div>
+    <div class="metric"><div class="metric-head"><span class="small">탄수화물</span><span><b style="color:var(--carb)">${r1(ft.c)}</b> <span class="muted small">/ ${Math.round(t.carbG)} g</span></span></div>${bar(ft.c, t.carbG, "c")}</div>
   </section>
   <div class="seg" role="group" aria-label="끼니 선택">${MEALS.map((m) => `<button data-act="meal" data-meal="${m.k}" aria-pressed="${S.meal === m.k}">${m.label}</button>`).join("")}</div>
   ${D().myMeals.length ? `<div class="sec-title">내 식사 → ${mealLabel}</div><section class="card"><div class="chips">${D().myMeals.map((m) => `<button class="chip combo" data-act="addcombo" data-id="${m.id}">${esc(m.name)} <span class="pp">${r1(foodTotals(m.items).p)}g</span></button>`).join("")}</div></section>` : ""}
@@ -401,18 +401,17 @@ function vFood() {
   <form class="card stack" id="addFoodForm" autocomplete="off">
     <div class="field"><label for="fName">음식 이름</label><input id="fName" type="text" placeholder="예: 편의점 닭가슴살 1팩" required></div>
     <div class="seg" role="group" aria-label="영양 정보 기준"><button type="button" data-act="fbasis" data-b="sv" aria-pressed="${S.fBasis !== "g"}">1회분 기준</button><button type="button" data-act="fbasis" data-b="g" aria-pressed="${S.fBasis === "g"}">100 g당 기준</button></div>
-    <div class="grid4">
+    <div class="grid3">
       <div class="field"><label for="fKcal">칼로리 kcal</label><input id="fKcal" inputmode="decimal" required></div>
       <div class="field"><label for="fP">단백질 g</label><input id="fP" inputmode="decimal"></div>
       <div class="field"><label for="fC">탄수 g</label><input id="fC" inputmode="decimal"></div>
-      <div class="field"><label for="fF">지방 g</label><input id="fF" inputmode="decimal"></div>
     </div>
     ${S.fBasis === "g" ? `<div class="field"><label for="fG">먹은 양 g</label><input id="fG" inputmode="numeric" value="100"></div>` : ""}
     <label class="row small"><input type="checkbox" id="fSave" checked> 내 음식에도 저장</label>
     <button class="btn primary" type="submit">추가</button>
   </form>`;
 }
-const foodMeta = (x, k) => `${Math.round(x.kcal * k)} kcal · <span class="pv">단백질 ${r1(x.p * k)} g</span> · 탄 ${r1(x.c * k)} · 지 ${r1(x.f * k)}`;
+const foodMeta = (x, k) => `${Math.round(x.kcal * k)} kcal · <span class="pv">단백질 ${r1(x.p * k)} g</span> · 탄수 ${r1(x.c * k)} g`;
 
 /* ----- history view ----- */
 function niceStep(raw) { if (raw <= 0) return 1; const p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p; }
@@ -514,7 +513,7 @@ function vSettings() {
     <div class="grid2">
       <div class="field"><label for="sGoal">목표</label><select id="sGoal" data-bind="set" data-k="goal">${GOALS.map((g) => `<option value="${g.v}" ${num(st.goal) === g.v ? "selected" : ""}>${g.label}</option>`).join("")}</select></div>
       <div class="field"><label for="sGpk">단백질 g/kg</label><input id="sGpk" inputmode="decimal" data-bind="set" data-k="gPerKg" value="${st.gPerKg}"></div>
-      <div class="field"><label for="sFat">지방 비율 %</label><input id="sFat" inputmode="numeric" data-bind="set" data-k="fatPct" value="${st.fatPct}"></div>
+      <div class="field"><label for="sFat">탄수 목표 계산용 지방 비율 %</label><input id="sFat" inputmode="numeric" data-bind="set" data-k="fatPct" value="${st.fatPct}"></div>
       <div class="field"><label for="sOv">목표 kcal 직접 지정</label><input id="sOv" inputmode="numeric" data-bind="set" data-k="kcalOverride" value="${st.kcalOverride ?? ""}" placeholder="자동 ${Math.round(t.auto)}"></div>
     </div>
   </section>
@@ -524,7 +523,7 @@ function vSettings() {
     <div style="margin-top:4px"><b>② 활동대사량 TDEE</b> = BMR × 활동계수</div><code>${Math.round(t.bmr)} × ${st.activity} = ${Math.round(t.tdee)} kcal</code>
     <div style="margin-top:4px"><b>③ 목표 칼로리</b> = TDEE + 목표 보정</div><code>${Math.round(t.tdee)} ${num(st.goal) >= 0 ? "+" : "−"} ${Math.abs(num(st.goal))} = ${Math.round(t.auto)} kcal${st.kcalOverride ? ` → 직접 지정 ${Math.round(t.kcal)} 사용` : ""}</code>
     <div style="margin-top:4px"><b>④ 단백질</b> = 체중 × g/kg</div><code>${t.w} × ${st.gPerKg} = ${Math.round(t.protein)} g</code>
-    <div style="margin-top:4px"><b>⑤ 지방·탄수</b></div><code>지방 ${Math.round(t.kcal)}×${st.fatPct}%÷9 = ${Math.round(t.fatG)} g · 탄수 (${Math.round(t.kcal)} − ${Math.round(t.protein)}×4 − ${Math.round(t.fatG)}×9)÷4 = ${Math.round(t.carbG)} g</code>
+    <div style="margin-top:4px"><b>⑤ 탄수화물 목표</b> = 목표 kcal에서 단백질과 지방 몫(${st.fatPct}%)을 뺀 나머지</div><code>탄수 (${Math.round(t.kcal)} − ${Math.round(t.protein)}×4 − ${Math.round(t.fatG)}×9)÷4 = ${Math.round(t.carbG)} g</code>
   </div><div class="xs muted">체중은 ${t.src} 값을 사용합니다. 공식 값은 추정치이므로 2–3주 체중 변화를 보고 조정하세요.</div></section>
   <div class="sec-title">운동 설정</div>
   <section class="card stack">
@@ -542,9 +541,9 @@ function vSettings() {
   <section class="card">${D().myFoods.map((f) => S.editFood === f.id ? `<form class="list-item stack editFood" data-id="${f.id}" style="display:grid" autocomplete="off">
       <input id="ef-name" type="text" value="${esc(f.name)}" aria-label="이름">
       <div class="seg" role="group"><button type="button" data-act="efbasis" data-b="sv" aria-pressed="${(S.efBasis || f.basis) !== "g"}">1회분</button><button type="button" data-act="efbasis" data-b="g" aria-pressed="${(S.efBasis || f.basis) === "g"}">100 g당</button></div>
-      <div class="grid4"><div class="field"><label for="ef-k">kcal</label><input id="ef-k" inputmode="decimal" value="${f.kcal}"></div><div class="field"><label for="ef-p">단백질</label><input id="ef-p" inputmode="decimal" value="${f.p}"></div><div class="field"><label for="ef-c">탄수</label><input id="ef-c" inputmode="decimal" value="${f.c}"></div><div class="field"><label for="ef-f">지방</label><input id="ef-f" inputmode="decimal" value="${f.f}"></div></div>
+      <div class="grid3"><div class="field"><label for="ef-k">kcal</label><input id="ef-k" inputmode="decimal" value="${f.kcal}"></div><div class="field"><label for="ef-p">단백질</label><input id="ef-p" inputmode="decimal" value="${f.p}"></div><div class="field"><label for="ef-c">탄수</label><input id="ef-c" inputmode="decimal" value="${f.c}"></div></div>
       <div class="row"><button class="btn primary sm" type="submit">저장</button><button class="btn sm ghost" type="button" data-act="editfood" data-id="">취소</button><span class="grow"></span><button class="btn sm ${S.confirm === f.id ? "danger" : "ghost"}" type="button" data-act="delmy" data-id="${f.id}">${S.confirm === f.id ? "정말 삭제" : "삭제"}</button></div></form>`
-    : `<div class="list-item"><div class="grow">${esc(f.name)}<div class="xs muted">${f.basis === "g" ? "100 g당 " : "1회 "}${f.kcal} kcal · <span style="color:var(--accent);font-weight:700">단백질 ${f.p} g</span> · 탄 ${f.c} · 지 ${f.f}</div></div><button class="btn sm ghost" data-act="editfood" data-id="${f.id}">수정</button></div>`).join("") || `<div class="small muted">식단 화면에서 직접 입력한 음식이 여기에 모입니다.</div>`}</section>
+    : `<div class="list-item"><div class="grow">${esc(f.name)}<div class="xs muted">${f.basis === "g" ? "100 g당 " : "1회 "}${f.kcal} kcal · <span style="color:var(--accent);font-weight:700">단백질 ${f.p} g</span> · 탄수 ${f.c} g</div></div><button class="btn sm ghost" data-act="editfood" data-id="${f.id}">수정</button></div>`).join("") || `<div class="small muted">식단 화면에서 직접 입력한 음식이 여기에 모입니다.</div>`}</section>
   <div class="sec-title">백업과 내보내기</div>
   <section class="card stack">
     <div class="small">기록은 이 휴대폰 안(IndexedDB)에만 저장됩니다. 휴대폰을 바꾸거나 브라우저 데이터를 지우기 전에 백업 파일을 저장해 두세요.</div>
@@ -591,8 +590,8 @@ function csvWorkouts() {
   return csv(rows);
 }
 function csvFoods() {
-  const rows = [["날짜", "끼니", "음식", "기준", "수량", "g", "kcal", "단백질 g", "탄수 g", "지방 g"]];
-  for (const d of Object.keys(D().days).sort()) for (const f of D().days[d].foods) { const k = factor(f); rows.push([d, MEALS.find((m) => m.k === f.meal).label, f.name, f.basis === "g" ? "100g당" : "1회분", f.basis === "g" ? "" : f.qty, f.basis === "g" ? f.g : "", Math.round(f.kcal * k), r1(f.p * k), r1(f.c * k), r1(f.f * k)]); }
+  const rows = [["날짜", "끼니", "음식", "기준", "수량", "g", "kcal", "단백질 g", "탄수 g"]];
+  for (const d of Object.keys(D().days).sort()) for (const f of D().days[d].foods) { const k = factor(f); rows.push([d, MEALS.find((m) => m.k === f.meal).label, f.name, f.basis === "g" ? "100g당" : "1회분", f.basis === "g" ? "" : f.qty, f.basis === "g" ? f.g : "", Math.round(f.kcal * k), r1(f.p * k), r1(f.c * k)]); }
   return csv(rows);
 }
 
@@ -747,13 +746,13 @@ $view.addEventListener("submit", (e) => {
     S.saveMeal = null; toast(`"${name}"을 내 식사로 저장했습니다.`);
   } else if (form.id === "addFoodForm") {
     const name = val("fName").trim(); if (!name) return;
-    const basis = S.fBasis === "g" ? "g" : "sv", item = { name, basis, kcal: num(val("fKcal")), p: num(val("fP")), c: num(val("fC")), f: num(val("fF")) };
+    const basis = S.fBasis === "g" ? "g" : "sv", item = { name, basis, kcal: num(val("fKcal")), p: num(val("fP")), c: num(val("fC")), f: 0 };
     const g = basis === "g" ? (num(val("fG")) || 100) : null, ref = uid();
     if (document.getElementById("fSave").checked) D().myFoods.push(normMyFood({ id: ref, ...item, lastG: g || undefined }));
     day.foods.push(normFoodEntry({ ref, ...item, meal: S.meal, qty: 1, g })); toast(`${name} 추가`);
   } else if (form.classList.contains("editFood")) {
     const f = D().myFoods.find((x) => x.id === form.dataset.id);
-    Object.assign(f, normMyFood({ id: f.id, name: val("ef-name").trim() || f.name, basis: S.efBasis || f.basis, kcal: val("ef-k"), p: val("ef-p"), c: val("ef-c"), f: val("ef-f"), lastG: f.lastG }));
+    Object.assign(f, normMyFood({ id: f.id, name: val("ef-name").trim() || f.name, basis: S.efBasis || f.basis, kcal: val("ef-k"), p: val("ef-p"), c: val("ef-c"), f: f.f, lastG: f.lastG }));
     S.editFood = null; S.efBasis = null; toast("내 음식을 수정했습니다. 이미 기록한 날짜에는 반영되지 않습니다.");
   }
   pbCache = new Map(); save(); render();
