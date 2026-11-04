@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap">
 <style>
-/* Layout: mobile-first single column (max 560px), sticky date header, fixed rest-timer bar + bottom tab bar.
+/* Layout: mobile-first single column (max 560px), sticky date header, fixed bottom tab bar.
    Color language borrows competition plate colors: blue=protein/accent, yellow=carbs, green=fat, red=over/PR. */
 :root {
   --bg: #ECEFF3; --surface: #FFFFFF; --surface-2: #F4F6F9; --line: #D5DBE3;
@@ -59,19 +59,12 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .today-btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; height: 34px; padding: 0 10px; cursor: pointer; font-size: 13px; }
 
 main { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
-  padding-block: 14px calc(140px + env(safe-area-inset-bottom, 0px)); }
+  padding-block: 14px calc(84px + env(safe-area-inset-bottom, 0px)); }
 .wrap { max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
 .banner { font-size: 13px; color: var(--muted); background: var(--surface-2); border: 1px dashed var(--line); border-radius: var(--r); padding: 8px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .banner .grow { flex: 1 1 200px; }
 
 .dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; }
-.rest { background: var(--fg); color: var(--bg);
-  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
-.rest-in { max-width: 560px; margin: 0 auto; display: flex; align-items: center; gap: 8px; padding-block: 8px; position: relative; }
-.rest-prog { position: absolute; left: 0; top: 0; height: 3px; background: var(--accent); border-radius: 2px; }
-.rest-time { font-family: var(--font-num); font-weight: 700; font-size: 26px; min-width: 64px; font-variant-numeric: tabular-nums; }
-.rest-label { flex: 1; min-width: 0; font-size: 12px; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rest button { background: transparent; color: inherit; border: 1px solid currentColor; border-radius: 8px; padding: 5px 9px; font-size: 13px; cursor: pointer; opacity: .9; }
 .tabs { background: var(--surface); border-top: 1px solid var(--line);
   padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px); }
 .tabs-in { max-width: 560px; margin: 0 auto; display: grid; grid-template-columns: repeat(5, 1fr); }
@@ -209,7 +202,7 @@ input:focus-visible, select:focus-visible, button:focus-visible, textarea:focus-
 .calc { font-size: 13px; font-variant-numeric: tabular-nums; display: grid; gap: 4px; background: var(--surface-2); border-radius: 8px; padding: 10px 12px; overflow-x: auto; }
 .calc code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: nowrap; }
 .empty { text-align: center; color: var(--muted); padding: 18px 10px; font-size: 14px; }
-.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(130px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 9px 14px; border-radius: 8px; font-size: 13px; z-index: 20; max-width: calc(100% - 32px); box-shadow: 0 6px 20px rgba(0,0,0,.2); }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(76px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 9px 14px; border-radius: 8px; font-size: 13px; z-index: 20; max-width: calc(100% - 32px); box-shadow: 0 6px 20px rgba(0,0,0,.2); }
 .toast.pr { background: var(--pr); color: #fff; font-weight: 700; }
 .list-item { display: flex; gap: 8px; align-items: center; padding-block: 8px; border-top: 1px solid var(--line); }
 .list-item:first-child { border-top: 0; padding-top: 0; }
@@ -232,16 +225,6 @@ input:focus-visible, select:focus-visible, button:focus-visible, textarea:focus-
 <main><div class="wrap" id="view"></div></main>
 
 <div class="dock">
-  <div class="rest" id="restBar" hidden>
-    <div class="rest-in">
-      <i class="rest-prog" id="restProg"></i>
-      <span class="rest-time" id="restTime">0:00</span>
-      <span class="rest-label" id="restLabel">휴식</span>
-      <button id="restMinus" aria-label="15초 줄이기">−15</button>
-      <button id="restPlus" aria-label="15초 늘리기">+15</button>
-      <button id="restSkip">건너뛰기</button>
-    </div>
-  </div>
   <nav class="tabs" aria-label="화면">
     <div class="tabs-in">
       <button class="tab" data-tab="summary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg>요약</button>
@@ -260,9 +243,8 @@ input:focus-visible, select:focus-visible, button:focus-visible, textarea:focus-
 "use strict";
 
 /* ================= constants ================= */
-const APP_VERSION = "2.0.0";
+const APP_VERSION = "2.1.0";
 const LS_KEY = "healthnote.v2";
-const LS_TIMER = "healthnote.timer";
 const PARTS = ["가슴", "등", "하체", "어깨", "팔", "코어", "기타"];
 const LIB = {
   "가슴": ["벤치프레스", "인클라인 벤치프레스", "덤벨 프레스", "인클라인 덤벨 프레스", "체스트 프레스 머신", "케이블 플라이", "펙덱 플라이", "딥스", "푸시업"],
@@ -290,8 +272,7 @@ const ACTIVITY = [
 ];
 const GOALS = [{ v: -500, label: "감량 (−500 kcal)" }, { v: 0, label: "유지 (±0)" }, { v: 300, label: "증량 (+300 kcal)" }];
 const MEALS = [{ k: "b", label: "아침" }, { k: "l", label: "점심" }, { k: "d", label: "저녁" }, { k: "s", label: "간식" }];
-const REST_STEPS = [60, 90, 120, 150, 180, 240];
-const DEFAULT_SETTINGS = { sex: "m", age: 22, height: 175, weight: 70, activity: 1.55, goal: 0, gPerKg: 1.6, kcalOverride: null, fatPct: 25, rest: 90, sound: true, vibrate: true, wakeLock: true };
+const DEFAULT_SETTINGS = { sex: "m", age: 22, height: 175, weight: 70, activity: 1.55, goal: 0, gPerKg: 1.6, kcalOverride: null, fatPct: 25, wakeLock: true };
 const BIG3 = [
   { k: "스쿼트", re: /^(바벨|백)?스쿼트$/ },
   { k: "벤치프레스", re: /^(바벨|플랫)?벤치프레스$/ },
@@ -418,7 +399,6 @@ function guessPart(name) {
 }
 function getPart(name) { return D().exParts[name] || guessPart(name); }
 function partOf(ex) { return ex.part || getPart(ex.name); }
-function restOf(name) { return num(D().exRest[name]) || num(D().settings.rest) || 90; }
 
 function latestBody(key, upTo) {
   const ds = Object.keys(D().days).filter((d) => d <= upTo && D().days[d].body[key]).sort();
@@ -494,52 +474,13 @@ function partWeek(end) {
 }
 function sessionActive(day) { return !!(day && day.session && !day.session.end && day.date === todayStr()); }
 
-/* ================= rest timer, sound, wake lock ================= */
-let timer = null;
-try { const t = JSON.parse(localStorage.getItem(LS_TIMER) || "null"); if (t && t.end > Date.now() - 1000) timer = t; } catch (e) {}
-function saveTimer() { try { timer ? localStorage.setItem(LS_TIMER, JSON.stringify(timer)) : localStorage.removeItem(LS_TIMER); } catch (e) {} }
-function startRest(sec, label) { timer = { end: Date.now() + sec * 1000, total: sec, label }; saveTimer(); tick(); }
-let audioCtx = null;
-document.addEventListener("pointerdown", () => {
-  if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
-  else if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
-}, { passive: true });
-function beep() {
-  if (!audioCtx || !D().settings.sound) return;
-  try {
-    const t0 = audioCtx.currentTime;
-    [0, 0.22, 0.44].forEach((dt, i) => {
-      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-      o.frequency.value = i === 2 ? 1175 : 880; o.type = "sine";
-      g.gain.setValueAtTime(0.0001, t0 + dt); g.gain.exponentialRampToValueAtTime(0.35, t0 + dt + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.18);
-      o.connect(g).connect(audioCtx.destination); o.start(t0 + dt); o.stop(t0 + dt + 0.2);
-    });
-  } catch (e) {}
-}
-function finishRest() {
-  timer = null; saveTimer(); $("#restBar").hidden = true;
-  if (D().settings.vibrate && navigator.vibrate) navigator.vibrate([250, 120, 250]);
-  beep(); toast("휴식 끝 · 다음 세트 시작");
-}
+/* ================= session clock & wake lock ================= */
+try { localStorage.removeItem("healthnote.timer"); } catch (e) {}
 function tick() {
-  const bar = $("#restBar");
-  if (timer) {
-    const left = timer.end - Date.now();
-    if (left <= 0) finishRest();
-    else {
-      bar.hidden = false;
-      $("#restTime").textContent = fmtClock(left);
-      $("#restLabel").textContent = "휴식 · " + (timer.label || "");
-      $("#restProg").style.width = Math.max(0, Math.min(100, left / (timer.total * 1000) * 100)) + "%";
-    }
-  } else bar.hidden = true;
   const clk = document.getElementById("sessClock");
   if (clk) { const day = D().days[S.date]; if (day && day.session) clk.textContent = fmtClock(dayStats(day).dur); }
 }
-setInterval(tick, 250);
-$("#restMinus").onclick = () => { if (!timer) return; timer.end = Math.max(Date.now() + 1000, timer.end - 15000); saveTimer(); tick(); };
-$("#restPlus").onclick = () => { if (!timer) return; timer.end += 15000; timer.total += 15; saveTimer(); tick(); };
-$("#restSkip").onclick = () => { timer = null; saveTimer(); tick(); };
+setInterval(tick, 1000);
 
 let wakeLock = null;
 async function updateWakeLock() {
@@ -655,7 +596,6 @@ function exCard(ex, date) {
     </div>
     <div class="ex-meta">
       <select id="pt-${ex.id}" data-bind="part" data-ex="${ex.id}" aria-label="운동 부위">${PARTS.map((p) => `<option ${p === part ? "selected" : ""}>${p}</option>`).join("")}</select>
-      <button class="pill" data-act="restcycle" data-name="${esc(ex.name)}" aria-label="휴식 시간 바꾸기">휴식 ${restOf(ex.name)}초</button>
       ${pb.e ? `<span class="xs muted">최고 추정 1RM ${r1(pb.e)} kg</span>` : ""}
     </div>
     <div class="prev">${esc(prevTxt)}</div>
@@ -707,7 +647,7 @@ function vWorkout() {
     ${!day.workouts.length && prevDay ? `<button class="btn" data-act="copyprev" data-from="${prevDay}">${fmtDate(prevDay)} 운동 그대로 불러오기 (${D().days[prevDay].workouts.length}종목)</button>` : ""}
   </section>
   ${day.workouts.map((ex) => exCard(ex, S.date)).join("") || `<div class="empty">종목을 추가하면 세트별로 무게·횟수·RPE를 기록할 수 있습니다.<br>세트 번호를 누르면 일반 → 워밍업(W) → 드롭(D)으로 바뀝니다.</div>`}
-  ${day.workouts.length ? `<div class="xs muted">완료(✓)를 누르면 휴식 타이머가 시작됩니다. 워밍업 세트는 볼륨·신기록 계산에서 빠집니다. 추정 1RM = kg × (1 + 횟수/30) (Epley).</div>` : ""}`;
+  ${day.workouts.length ? `<div class="xs muted">워밍업 세트는 볼륨·신기록 계산에서 빠집니다. 추정 1RM = kg × (1 + 횟수/30) (Epley).</div>` : ""}`;
 }
 
 function vFood() {
@@ -907,14 +847,7 @@ function vSettings() {
   </section>
   <div class="sec-title">운동 설정</div>
   <section class="card stack">
-    <div class="grid2">
-      <div class="field"><label for="sRest">기본 휴식 시간 (초)</label><input id="sRest" inputmode="numeric" data-bind="set" data-k="rest" value="${st.rest}"></div>
-      <div class="field"><label>알림</label><div class="row small" style="padding-top:6px">
-        <label class="row" style="gap:4px"><input type="checkbox" data-bind="flag" data-k="sound" ${st.sound ? "checked" : ""}> 소리</label>
-        <label class="row" style="gap:4px"><input type="checkbox" data-bind="flag" data-k="vibrate" ${st.vibrate ? "checked" : ""}> 진동</label></div></div>
-    </div>
     <label class="row small"><input type="checkbox" data-bind="flag" data-k="wakeLock" ${st.wakeLock ? "checked" : ""}> 운동 중에는 화면이 꺼지지 않게</label>
-    <div class="xs muted">종목별 휴식 시간은 운동 카드의 "휴식 ○초"를 눌러 바꿉니다. 휴대폰 화면이 꺼지면 타이머 알림이 늦을 수 있습니다.</div>
   </section>
   <div class="sec-title">루틴 (${D().routines.length})</div>
   <section class="card">
@@ -990,7 +923,7 @@ $view.addEventListener("click", (e) => {
     case "goto": go(b.dataset.tab); return;
     case "install": if (installEvt) { installEvt.prompt(); installEvt.userChoice.finally(() => { installEvt = null; render(); }); } return;
     case "startsess": day.session = { start: Date.now(), end: null }; break;
-    case "endsess": if (day.session) day.session.end = Date.now(); timer = null; saveTimer(); toast(`운동 종료 · ${fmtDur(dayStats(day).dur)}`); break;
+    case "endsess": if (day.session) day.session.end = Date.now();toast(`운동 종료 · ${fmtDur(dayStats(day).dur)}`); break;
     case "resumesess": if (day.session) day.session.end = null; break;
     case "addset": case "addwarm": {
       const ex = findEx(b.dataset.ex), warm = act === "addwarm";
@@ -1011,11 +944,9 @@ $view.addEventListener("click", (e) => {
         pbCache = new Map();
         const f = prFlags(ex, S.date)[i];
         if (f) toast(`신기록! ${ex.name} ${f.includes("w") ? `최고 중량 ${num(s.kg)} kg` : `추정 1RM ${r1(e1rm(s.kg, s.reps))} kg`}`, true);
-        if (S.date === todayStr()) startRest(s.t === "W" ? Math.min(60, restOf(ex.name)) : restOf(ex.name), `${ex.name} ${i + 1}세트 후`);
       }
       break;
     }
-    case "restcycle": { const n = b.dataset.name, cur = restOf(n), nx = REST_STEPS.find((v) => v > cur) || REST_STEPS[0]; D().exRest[n] = nx; break; }
     case "delex": { const id = b.dataset.ex; if (S.confirm === id) { day.workouts = day.workouts.filter((x) => x.id !== id); S.confirm = null; } else { S.confirm = id; render(); return; } break; }
     case "copyprev": { const src = D().days[b.dataset.from]; for (const ex of src.workouts) day.workouts.push({ id: uid(), name: ex.name, part: ex.part, note: "", sets: ex.sets.map((s) => ({ kg: s.kg, reps: s.reps, t: s.t, rpe: "", done: false, at: null })) }); toast(`${shortDate(b.dataset.from)} 운동을 불러왔습니다.`); break; }
     case "saveroutine": S.saveRoutine = !S.saveRoutine; render(); if (S.saveRoutine) setTimeout(() => { const el = $("#routineName"); if (el) el.focus(); }, 0); return;

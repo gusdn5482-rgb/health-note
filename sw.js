@@ -1,7 +1,7 @@
 /* Health Note service worker: offline app shell.
    Navigation = network-first (updates arrive when online), static = cache-first,
    Google Fonts = stale-while-revalidate. Bump VERSION on every release. */
-const VERSION = "hn-2026-11-04c";
+const VERSION = "hn-2026-11-04d";
 const FONTS = "hn-fonts";
 const SHELL = [
   "./",
