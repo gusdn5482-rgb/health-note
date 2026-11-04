@@ -1,7 +1,7 @@
 /* Health Note service worker: offline app shell.
    Navigation = network-first (updates arrive when online), static = cache-first,
    Google Fonts = stale-while-revalidate. Bump VERSION on every release. */
-const VERSION = "hn-2026-11-04d";
+const VERSION = "hn-3.0.0";
 const FONTS = "hn-fonts";
 const SHELL = [
   "./",
@@ -10,7 +10,11 @@ const SHELL = [
   "./icon-192.png",
   "./icon-512.png",
   "./icon-maskable-512.png",
-  "./apple-touch-icon.png"
+  "./apple-touch-icon.png",
+  "./js/app.js",
+  "./js/calc.js",
+  "./js/store.js",
+  "./js/exercises.js"
 ];
 
 self.addEventListener("install", (e) => {
@@ -56,6 +60,10 @@ self.addEventListener("fetch", (e) => {
   }
 
   if (url.origin === self.location.origin) {
+    if (url.pathname.endsWith(".js")) {
+      e.respondWith(fetch(req).then((res) => { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); return res; }).catch(() => caches.match(req)));
+      return;
+    }
     e.respondWith(caches.match(req).then((hit) => hit || fetch(req)));
   }
 });
