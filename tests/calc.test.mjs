@@ -1,6 +1,6 @@
 // Run: node tests/calc.test.mjs
 import assert from "node:assert/strict";
-import { e1rm, recommend, plates, warmups, entryStats, setVolume, csv, roundTo, foodTotals, bmr } from "../js/calc.js";
+import { e1rm, recommend, plates, warmups, entryStats, setVolume, csv, roundTo, foodTotals, bmr, recovery, mondayOf, prScores } from "../js/calc.js";
 import { EXERCISES } from "../js/exercises.js";
 
 let n = 0; const t = (name, fn) => { fn(); n++; console.log("ok -", name); };
@@ -23,6 +23,10 @@ t("progression: not all at top -> same kg, reps +1 capped", () => {
   const r = recommend({ date: "2026-11-01", sets: [S(60, 12), S(60, 10), S(60, 7)] }, bench, "2026-11-04");
   assert.equal(r.up, false);
   assert.deepEqual(r.sets.map((s) => [s.kg, s.reps]), [[60, 12], [60, 11], [60, 8]]);
+});
+t("progression: odd weights are kept, not rounded to the increment", () => {
+  const r = recommend({ date: "2026-11-01", sets: [S(4.5, 10), S(4.5, 9)] }, bench, "2026-11-04");
+  assert.deepEqual(r.sets.map((s) => [s.kg, s.reps]), [[4.5, 11], [4.5, 10]]);
 });
 t("progression: >14 day gap -> 10% lower, floored to inc", () => {
   const r = recommend({ date: "2026-10-01", sets: [S(60, 10), S(60, 10)] }, bench, "2026-11-04");
@@ -59,6 +63,23 @@ t("food totals g + serving", () => {
   assert.equal(ft.kcal, 367.5); assert.equal(Math.round(ft.p * 10) / 10, 70.5);
 });
 t("BMR Mifflin–St Jeor", () => { assert.equal(bmr({ sex: "m", w: 70, h: 175, a: 22 }), 1688.75); });
+t("mondayOf: weeks run Mon-Sun", () => {
+  assert.equal(mondayOf("2026-11-10"), "2026-11-09"); // Tue
+  assert.equal(mondayOf("2026-11-09"), "2026-11-09"); // Mon
+  assert.equal(mondayOf("2026-11-15"), "2026-11-09"); // Sun
+  assert.equal(mondayOf("2026-11-01"), "2026-10-26"); // Sun across month
+});
+t("recovery: decay with tau = 48 h, cap 10 sets", () => {
+  const now = 1e12, h = 3600000, ten = (ago, w) => Array.from({ length: 10 }, () => ({ at: now - ago * h, w }));
+  assert.equal(recovery(ten(0, { 등: 1 }), now).등, 0);
+  assert.equal(recovery(ten(48, { 등: 1 }), now).등, 63);            // 100*(1-e^-1) = 63.2
+  assert.equal(recovery(ten(96, { 등: 1, 팔: 0.5 }), now).등, 86);    // 100*(1-e^-2) = 86.5 -> 86
+  assert.equal(recovery(ten(96, { 등: 1, 팔: 0.5 }), now).팔, 93);    // 100*(1-0.5*e^-2) = 93.2
+  assert.equal(recovery(ten(200, { 등: 1 }), now).등, undefined);    // older than 7 days ignored
+});
+t("set-volume PR score", () => {
+  assert.deepEqual(prScores({ kg: 40, reps: 20 }, "wr", 70), { e: 40 * (1 + 20 / 30), w: 40, v: 800 });
+});
 t("exercise ids unique, types valid", () => {
   const ids = new Set(EXERCISES.map((e) => e.id)); assert.equal(ids.size, EXERCISES.length);
   for (const e of EXERCISES) assert.ok(["wr", "bw", "bwp", "bwa", "time", "dist"].includes(e.type), e.name);

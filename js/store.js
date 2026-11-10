@@ -11,8 +11,14 @@ const DB_NAME = "healthnote", STORE = "kv", KEY = "state";
 export const MEALS = [{ k: "b", label: "아침" }, { k: "l", label: "점심" }, { k: "d", label: "저녁" }, { k: "s", label: "간식" }];
 export const DEFAULT_SETTINGS = {
   sex: "m", age: 22, height: 175, weight: 70, activity: 1.55, goal: 0, gPerKg: 1.6, kcalOverride: null, fatPct: 25,
-  wakeLock: true, barKg: 20, prefillRec: true
+  wakeLock: true, barKg: 20, prefillRec: true, showFood: false, recoveryHours: 48,
+  schedule: { 1: "어깨", 2: "등", 3: "가슴", 4: "팔", 5: "하체" },   // weekday (0 = Sun) -> body part
+  cardio: { exId: "e:러닝머신", min: 30 }                             // daily cardio; min 0 = off
 };
+export function mergeSettings(s) {
+  s = s || {};
+  return { ...DEFAULT_SETTINGS, ...s, schedule: { ...DEFAULT_SETTINGS.schedule, ...(s.schedule || {}) }, cardio: { ...DEFAULT_SETTINGS.cardio, ...(s.cardio || {}) } };
+}
 // Approximate reference values (USDA FoodData Central basis); packaged products vary.
 export const DEFAULT_FOODS = [
   { id: "f-chicken", name: "닭가슴살(익힘)", basis: "g", kcal: 165, p: 31, c: 0, f: 3.6, lastG: 100 },
@@ -30,7 +36,7 @@ export function uid() { return Math.random().toString(36).slice(2, 10) + Date.no
 export const norm = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();
 
 export function defaultData() {
-  return { v: 3, settings: { ...DEFAULT_SETTINGS }, days: {}, routines: [], myFoods: DEFAULT_FOODS.map((x) => ({ ...x })), myMeals: [],
+  return { v: 3, settings: mergeSettings(null), days: {}, routines: [], myFoods: DEFAULT_FOODS.map((x) => ({ ...x })), myMeals: [],
     customEx: {}, exPrefs: {}, lastBackup: null, migratedFrom: null };
 }
 
@@ -122,7 +128,7 @@ export function migrateLegacy(o) {
   const report = { custom: [], bodyweight: new Set(), from: "" };
   const isV2 = o.v === 2 || (o.app === "health-note" && o.v === 2);
   const src = isV2 ? (o.data || o) : null;
-  data.settings = { ...DEFAULT_SETTINGS, ...(isV2 ? src.settings : o.profile && o.profile.settings) };
+  data.settings = mergeSettings(isV2 ? src.settings : o.profile && o.profile.settings);
   delete data.settings.rest; delete data.settings.sound; delete data.settings.vibrate;
   const bw = num(data.settings.weight) || 70;
   const exParts = (isV2 && src.exParts) || {};
@@ -157,7 +163,7 @@ export function normalize(o) {
   const d = o.app === "health-note" && o.data ? o.data : o;
   if (d.v === 3) {
     const out = defaultData();
-    out.settings = { ...DEFAULT_SETTINGS, ...(d.settings || {}) };
+    out.settings = mergeSettings(d.settings);
     for (const [k, v] of Object.entries(d.days || {})) if (/^\d{4}-\d{2}-\d{2}$/.test(k)) out.days[k] = normDay(k, v);
     out.routines = (d.routines || []).map((r) => ({ id: r.id || uid(), name: String(r.name || "루틴"), items: (r.items || []).map((it) => ({ exId: String(it.exId), sets: (it.sets || []).map((s) => ({ t: s.t || "N", kg: s.kg ?? "", reps: s.reps ?? "", sec: s.sec ?? "", km: s.km ?? "" })) })) }));
     out.myFoods = Array.isArray(d.myFoods) ? d.myFoods.map(normMyFood) : out.myFoods;

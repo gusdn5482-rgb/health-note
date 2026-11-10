@@ -1,9 +1,9 @@
 // Health Note v3 — UI. State lives in store.js (IndexedDB); math in calc.js.
-import { num, r1, e1rm, isWorking, entryStats, prScores, recommend, plates, warmups, bmr, factor, foodTotals, csv, daysBetween } from "./calc.js";
+import { num, r1, e1rm, isWorking, entryStats, setVolume, prScores, recommend, recovery, mondayOf, plates, warmups, bmr, factor, foodTotals, csv } from "./calc.js";
 import { MUSCLES, PARTS, MUSCLE_PART, PART_MUSCLE, EQUIP, EQUIP_INC, TYPES } from "./exercises.js";
 import * as store from "./store.js";
 
-const APP_VERSION = "3.0.1";
+const APP_VERSION = "3.1.0";
 const { MEALS, uid, norm, getEx, allEx, partOfEx, normFoodEntry, normMyFood, normDay } = store;
 const ACTIVITY = [
   { v: 1.2, label: "거의 안 움직임 (×1.2)" }, { v: 1.375, label: "주 1–3회 운동 (×1.375)" },
@@ -35,7 +35,8 @@ function toast(msg, pr) { const t = $("#toast"); t.textContent = msg; t.classNam
 const S = {
   data: store.defaultData(), ready: false, tab: "summary", date: todayStr(), meal: mealByClock(), calMonth: todayStr().slice(0, 7),
   histEx: null, bodyMetric: "w", confirm: null, editFood: null, efBasis: null, fBasis: "sv", saveRoutine: false, saveMeal: null,
-  pendingImport: null, showPaste: false, pickerOpen: false, pickQ: "", pickPart: null, creating: false, editEx: null, plateFor: null, storageOk: true
+  pendingImport: null, showPaste: false, pickerOpen: false, pickQ: "", pickPart: null, creating: false, editEx: null, plateFor: null, storageOk: true,
+  sub: null, reportWeek: null
 };
 const D = () => S.data;
 let saveT;
@@ -80,7 +81,7 @@ function priorBest(exId, date) {
   }
   pbCache.set(key, best); return best;
 }
-const PR_LABEL = { e: "추정 1RM", w: "최고 중량", r: "최다 횟수", sec: "최장 시간", km: "최장 거리" };
+const PR_LABEL = { e: "추정 1RM", w: "최고 중량", v: "세트 볼륨", r: "최다 횟수", sec: "최장 시간", km: "최장 거리" };
 // Per-set PR flags (only once history exists): list of keys that beat every earlier set.
 function prFlags(entry, date) {
   const best = { ...priorBest(entry.exId, date) };
@@ -161,18 +162,22 @@ function requestRender() {
   }, 0);
 }
 $view.addEventListener("focusout", () => { if (renderDeferred) setTimeout(() => { if (renderDeferred) requestRender(); }, 0); });
-const TITLES = { summary: "요약", workout: "운동", food: "식단", history: "기록", settings: "설정" };
+const TITLES = { summary: "홈", workout: "운동", food: "식단", history: "기록", settings: "설정" };
 function render() {
   renderDeferred = false; pbCache = new Map();
+  const showFood = !!D().settings.showFood;
+  if (S.tab === "food" && !showFood) S.tab = "summary";
+  if (S.tab === "summary") S.date = todayStr();   // home is always today
+  const foodTab = document.querySelector('.tab[data-tab="food"]'); if (foodTab) foodTab.hidden = !showFood;
   $("#viewTitle").textContent = TITLES[S.tab];
   $("#dateLabel").textContent = fmtDate(S.date);
   $("#todayBtn").hidden = S.date === todayStr();
-  $("#dateNav").hidden = S.tab === "history" || S.tab === "settings";
+  $("#dateNav").hidden = S.tab !== "workout" && S.tab !== "food";
   document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-current", b.dataset.tab === S.tab ? "page" : "false"));
   if (!S.ready) { $view.innerHTML = `<div class="empty">기록을 불러오는 중…</div>`; return; }
   let banner = "";
   if (!S.storageOk) banner += `<div class="banner">이 브라우저에서는 기록을 저장할 수 없습니다. 시크릿 모드라면 일반 창에서 열어 주세요.</div>`;
-  $view.innerHTML = banner + ({ summary: vSummary, workout: vWorkout, food: vFood, history: vHistory, settings: vSettings }[S.tab])();
+  $view.innerHTML = banner + ({ summary: vHome, workout: vWorkout, food: vFood, history: vHistory, settings: vSettings }[S.tab])();
   updateWakeLock();
 }
 function bar(val, max, cls) {
@@ -192,45 +197,121 @@ function migrationNote() {
   return `<div class="banner" style="border-style:solid"><span class="grow">${parts.join(" ")}</span><button class="btn sm" data-act="dismissmig">확인</button></div>`;
 }
 
-function vSummary() {
-  const day = getDay(S.date), t = targets(S.date), ft = foodTotals(day.foods), ws = dayStats(day), remain = t.kcal - ft.kcal;
+/* ----- plan, cardio, recovery helpers ----- */
+const WD = "일월화수목금토";
+const STRENGTH_PARTS = PARTS.filter((p) => p !== "유산소");
+const isCardio = (exId) => ex(exId).primary === "cardio";
+const planFor = (date) => (D().settings.schedule || {})[parseD(date).getDay()] || null;
+function dominantPart(day) {
+  const c = {};
+  for (const e of day.entries) { if (isCardio(e.exId)) continue; const p = partOfEx(ex(e.exId)); c[p] = (c[p] || 0) + e.sets.length; }
+  const top = Object.entries(c).sort((a, b) => b[1] - a[1])[0];
+  return top ? top[0] : null;
+}
+function lastPartDay(part, before) {
+  for (const d of Object.keys(D().days).filter((x) => x < before).sort().reverse()) if (workedStrength(D().days[d]) && dominantPart(D().days[d]) === part) return d;
+  return null;
+}
+const workedStrength = (day) => !!day && day.entries.some((e) => !isCardio(e.exId) && e.sets.some(isWorking));
+function cardioOf(day) {
+  let sec = 0, km = 0, n = 0;
+  if (day) for (const e of day.entries) if (isCardio(e.exId)) for (const s of e.sets) if (isWorking(s)) { sec += num(s.sec); km += num(s.km); n++; }
+  return { sec, km, n };
+}
+function recoveryByPart(now = Date.now()) {
+  const items = [], today = todayStr();
+  for (let i = 0; i <= 7; i++) {
+    const d = shiftDate(today, -i), day = D().days[d]; if (!day) continue;
+    const fallback = parseD(d).getTime() + 18 * 3600000; // sets without a timestamp count as 18:00 that day
+    for (const e of day.entries) {
+      const x = ex(e.exId); if (x.primary === "cardio") continue;
+      const w = { [MUSCLE_PART[x.primary]]: 1 };
+      for (const m of x.secondary || []) { const p = MUSCLE_PART[m]; if (p && !w[p]) w[p] = 0.5; }
+      for (const s of e.sets) if (isWorking(s)) items.push({ at: Math.min(s.at || fallback, now), w });
+    }
+  }
+  const r = recovery(items, now, num(D().settings.recoveryHours) || 48), out = {};
+  for (const p of STRENGTH_PARTS) out[p] = r[p] ?? 100;
+  return out;
+}
+function startPlan(day) {
+  const part = planFor(day.date); let n = 0, src = null;
+  if (part) { src = lastPartDay(part, day.date); if (src) for (const e of D().days[src].entries) if (!isCardio(e.exId)) { addEntry(day, e.exId, e.sets); n++; } }
+  if (!n) { S.pickerOpen = true; S.pickPart = part && PARTS.includes(part) ? part : null; S.pickQ = ""; }
+  return { part, src, n };
+}
+function logCardio(day) {
+  const c = D().settings.cardio || {}, exId = c.exId || "e:러닝머신", min = num(c.min) || 30;
+  day.entries.push({ id: uid(), exId, group: null, note: "", sets: [{ ...blankSet(), sec: min * 60, done: true, at: Date.now() }] });
+  return { name: ex(exId).name, min };
+}
+function dayPRs(day) {
+  const out = [];
+  for (const e of day.entries) { const hits = new Set(); prFlags(e, day.date).forEach((f) => f && f.forEach((k) => hits.add(k))); if (hits.size) out.push({ name: ex(e.exId).name, labels: [...hits].map((k) => PR_LABEL[k]) }); }
+  return out;
+}
+function statRow(ws) {
+  return `<div class="stats">
+    <div class="stat"><div class="v">${ws.done}<span class="small muted">/${ws.sets}</span></div><div class="k">완료 세트</div></div>
+    <div class="stat"><div class="v">${Math.round(ws.vol).toLocaleString()}</div><div class="k">볼륨 kg</div></div>
+    <div class="stat"><div class="v">${ws.dur >= 60000 ? fmtDur(ws.dur).replace("시간 ", "h ").replace("분", "m") : "—"}</div><div class="k">운동 시간</div></div>
+    <div class="stat"><div class="v" style="${ws.prs ? "color:var(--pr)" : ""}">${ws.prs}</div><div class="k">신기록</div></div>
+  </div>`;
+}
+const recCls = (v) => (v < 50 ? "lo" : v < 80 ? "mid" : "hi");
+
+function vHome() {
+  const today = todayStr(), day = getDay(today), ws = dayStats(day), part = planFor(today), st = D().settings;
   const install = installEvt && !isStandalone() ? `<div class="banner"><span class="grow">홈 화면에 설치하면 앱처럼 바로 열 수 있습니다.</span><button class="btn sm primary" data-act="install">설치</button></div>` : "";
+  const strength = day.entries.filter((e) => !isCardio(e.exId));
+  const c = st.cardio || {}, cMin = num(c.min), cName = ex(c.exId || "e:러닝머신").name, run = cardioOf(day);
+  const src = part ? lastPartDay(part, today) : null, srcN = src ? D().days[src].entries.filter((e) => !isCardio(e.exId)).length : 0;
+  const rec = recoveryByPart(), mon = mondayOf(today);
+  let worked = 0, planned = 0, runs = 0;
+  const strip = [0, 1, 2, 3, 4, 5, 6].map((i) => {
+    const d = shiftDate(mon, i), dd = D().days[d], p = planFor(d), w = workedStrength(dd), r = cardioOf(dd).n > 0, has = !!(dd && dd.entries.length), wd = WD[parseD(d).getDay()];
+    if (p) planned++; if (w) worked++; if (r) runs++;
+    return `<button class="wk${w ? " on" : ""}${d === today ? " today" : ""}" ${has ? `data-act="diary" data-d="${d}"` : "disabled"} aria-label="${wd}요일 ${p || "휴식"}${w ? ", 운동 완료" : ""}${r ? ", 유산소 완료" : ""}"><span class="wd">${wd}</span><span class="pt">${p || "휴식"}</span><span class="mk">${w ? "✓" : ""}</span>${r ? `<i class="rn"></i>` : ""}</button>`;
+  }).join("");
+  const fresh = STRENGTH_PARTS.filter((p) => rec[p] >= 90 && p !== "코어");
+  const lastD = Object.keys(D().days).filter((d) => d < today && D().days[d].entries.length).sort().pop();
+  let recent = "";
+  if (lastD) {
+    const ld = D().days[lastD], lws = dayStats(ld), lp = dominantPart(ld);
+    recent = `<div class="sec-title">최근 운동</div>
+    <button class="card recent" data-act="diary" data-d="${lastD}"><span class="row"><b class="grow">${fmtDate(lastD)} · ${lp || "유산소"}</b><span class="xs muted">자세히 ›</span></span>
+      <span class="small muted">${ld.entries.map((e) => esc(ex(e.exId).name)).join(" · ")}</span>
+      <span class="xs muted">세트 ${lws.done} · 볼륨 ${Math.round(lws.vol).toLocaleString()} kg${lws.dur >= 60000 ? ` · ${fmtDur(lws.dur)}` : ""}${lws.prs ? ` · 신기록 ${lws.prs}` : ""}</span></button>`;
+  }
+  let foodCard = "";
+  if (st.showFood) { const t = targets(today), ft = foodTotals(day.foods); foodCard = `<div class="sec-title">식단</div><section class="card stack"><div class="metric"><div class="metric-head"><span class="small">칼로리</span><span><b>${Math.round(ft.kcal).toLocaleString()}</b> <span class="muted small">/ ${Math.round(t.kcal).toLocaleString()} kcal</span></span></div>${bar(ft.kcal, t.kcal, "")}</div><div class="small muted">단백질 ${r1(ft.p)} / ${Math.round(t.protein)} g · 탄수 ${r1(ft.c)} / ${Math.round(t.carbG)} g</div></section>`; }
   return `${migrationNote()}${install}${backupNag()}
-  <section class="card" aria-label="칼로리">
-    <div class="kcal-hero">
-      <div><div class="xs muted">${remain >= 0 ? "남은 칼로리" : "목표 초과"}</div>
-        <div class="kcal-big ${remain < 0 ? "over" : ""}">${Math.round(Math.abs(remain)).toLocaleString()}<small> kcal</small></div></div>
-      <div class="small muted kcal-side" style="text-align:right">섭취 <b>${Math.round(ft.kcal).toLocaleString()}</b><br>목표 <b>${Math.round(t.kcal).toLocaleString()}</b></div>
-    </div>
-    <div style="margin-top:12px">${bar(ft.kcal, t.kcal, "")}</div>
+  <section class="card stack plan" aria-label="오늘 운동">
+    <div class="xs muted">${fmtDate(today)}</div>
+    <div class="plan-title">${part ? `${part} 하는 날` : "쉬는 날"}</div>
+    ${strength.length ? `${statRow(ws)}<div class="small muted">${strength.map((e) => esc(ex(e.exId).name)).join(" · ")}</div>
+      <button class="btn primary block" data-act="goto" data-tab="workout">${ws.done < ws.sets ? "이어서 기록" : "오늘 기록 보기"}</button>`
+    : `<button class="btn primary block big" data-act="startplan">${part ? `${part} 운동 시작` : "자유 운동 시작"}</button>
+      <div class="xs muted">${srcN ? `지난 ${fmtDate(src)}에 한 ${part} 운동 ${srcN}종목을 불러오고, 그때 기록으로 오늘 무게·횟수를 채웁니다.` : part ? `${part} 종목을 골라 시작합니다. 한 번 기록하면 다음부터는 자동으로 불러옵니다.` : "하고 싶은 종목을 골라 기록합니다."}</div>
+      ${part && rec[part] < 60 ? `<div class="xs" style="color:var(--warn)">${part} 회복도 ${rec[part]}% · 최근에 많이 쓴 부위입니다.</div>` : ""}`}
+    ${cMin ? `<div class="row runrow"><span class="grow"><b>${esc(cName)} ${cMin}분</b> <span class="xs muted">매일</span></span>${run.n ? `<span class="okmark">✓ ${Math.round(run.sec / 60)}분${run.km ? ` · ${r1(run.km)} km` : ""}</span>` : `<button class="btn sm" data-act="logcardio">완료 기록</button>`}</div>` : ""}
   </section>
-  <section class="card metric" aria-label="단백질">
-    <div class="metric-head"><span style="font-weight:700">단백질 (Protein)</span><span><b style="color:var(--accent)">${r1(ft.p)}</b> <span class="muted">/ ${Math.round(t.protein)} g</span></span></div>
-    ${bar(ft.p, t.protein, "p")}
-    <div class="small muted">${ft.p >= t.protein ? "오늘 목표 달성" : `${r1(t.protein - ft.p)} g 더 필요`} · 체중 ${t.w} kg × ${D().settings.gPerKg} g/kg</div>
+  <div class="sec-title">이번 주<span class="lnk xs">운동 ${worked}/${planned}일${cMin ? ` · 유산소 ${runs}회` : ""}</span></div>
+  <section class="card stack"><div class="week">${strip}</div>${cMin ? `<div class="legend"><span><i class="rn" style="position:static"></i>유산소 한 날</span></div>` : ""}</section>
+  <div class="sec-title">부위별 회복도</div>
+  <section class="card stack">
+    ${STRENGTH_PARTS.map((p) => `<div class="hbar"><span>${p}</span><span class="track"><i class="${recCls(rec[p])}" style="width:${rec[p]}%"></i></span><span class="val">${rec[p]}%</span></div>`).join("")}
+    <div class="xs muted">${fresh.length ? `지금 하기 좋은 부위: <b>${fresh.join(", ")}</b>. ` : ""}최근 7일 동안 한 세트 수로 추정한 값입니다.</div>
   </section>
-  <section class="card"><div class="macros two">
-    <div class="macro"><div class="k"><span class="dot" style="background:var(--carb)"></span>탄수화물</div><div class="v">${Math.round(ft.c)}<span class="small muted"> / ${Math.round(t.carbG)} g</span></div>${bar(ft.c, t.carbG, "c")}</div>
-    <div class="macro"><div class="k"><span class="dot" style="background:var(--accent)"></span>단백질 비율</div><div class="v">${ft.kcal ? Math.round(ft.p * 4 / ft.kcal * 100) : 0}<span class="small muted"> % kcal</span></div><div class="xs muted">${Math.round(ft.p * 4)} kcal</div></div>
-  </div></section>
-  <div class="sec-title">운동</div>
-  <section class="card">
-    ${ws.ex ? `<div class="stats">
-      <div class="stat"><div class="v">${ws.done}<span class="small muted">/${ws.sets}</span></div><div class="k">완료 세트</div></div>
-      <div class="stat"><div class="v">${Math.round(ws.vol).toLocaleString()}</div><div class="k">볼륨 kg</div></div>
-      <div class="stat"><div class="v">${ws.dur >= 60000 ? fmtDur(ws.dur).replace("시간 ", "h ").replace("분", "m") : "—"}</div><div class="k">운동 시간</div></div>
-      <div class="stat"><div class="v" style="${ws.prs ? "color:var(--pr)" : ""}">${ws.prs}</div><div class="k">신기록</div></div>
-    </div><div class="small muted" style="margin-top:8px">${day.entries.map((e) => esc(ex(e.exId).name)).join(" · ")}</div>`
-    : `<div class="empty" style="padding:6px">아직 운동 기록이 없습니다.<br><button class="btn primary sm" data-act="goto" data-tab="workout" style="margin-top:8px">운동 기록하기</button></div>`}
-  </section>
+  ${recent}${foodCard}
   <div class="sec-title">체성분 (Body composition)</div>
   <section class="card stack">
     <div class="grid3">
-      <div class="field"><label for="bw">체중 kg</label><input id="bw" inputmode="decimal" data-bind="body" data-k="w" value="${day.body.w ?? ""}" placeholder="${latestBody("w", S.date)?.v ?? ""}"></div>
-      <div class="field"><label for="bf">체지방률 %</label><input id="bf" inputmode="decimal" data-bind="body" data-k="fat" value="${day.body.fat ?? ""}" placeholder="${latestBody("fat", S.date)?.v ?? ""}"></div>
-      <div class="field"><label for="bm">골격근량 kg</label><input id="bm" inputmode="decimal" data-bind="body" data-k="mm" value="${day.body.mm ?? ""}" placeholder="${latestBody("mm", S.date)?.v ?? ""}"></div>
+      <div class="field"><label for="bw">체중 kg</label><input id="bw" inputmode="decimal" data-bind="body" data-k="w" value="${day.body.w ?? ""}" placeholder="${latestBody("w", today)?.v ?? ""}"></div>
+      <div class="field"><label for="bf">체지방률 %</label><input id="bf" inputmode="decimal" data-bind="body" data-k="fat" value="${day.body.fat ?? ""}" placeholder="${latestBody("fat", today)?.v ?? ""}"></div>
+      <div class="field"><label for="bm">골격근량 kg</label><input id="bm" inputmode="decimal" data-bind="body" data-k="mm" value="${day.body.mm ?? ""}" placeholder="${latestBody("mm", today)?.v ?? ""}"></div>
     </div>
-    <div class="xs muted">체중을 기록하면 칼로리·단백질 목표와 맨몸 운동 볼륨에 최근 체중이 반영됩니다. 흐린 숫자는 직전 기록입니다.</div>
+    <div class="xs muted">체중은 풀업 같은 맨몸 운동의 볼륨 계산에 쓰입니다. 흐린 숫자는 직전 기록입니다.</div>
   </section>`;
 }
 
@@ -265,7 +346,7 @@ function exCard(entry, idx, day, labels) {
   return `<section class="card ex ${entry.group ? "sup" : ""}">
     <div class="ex-head">
       ${label ? `<span class="sup-tag">${label}</span>` : ""}
-      <div class="grow"><div class="ex-title">${esc(e.name)}</div>
+      <div class="grow"><button class="ex-title" data-act="exdetail" data-id="${esc(e.id)}" aria-label="${esc(e.name)} 기록 보기">${esc(e.name)} <span class="xs muted">›</span></button>
         <div class="xs muted">${esc(MUSCLES[e.primary] || "")} · ${esc(EQUIP[e.equip] || "")} · ${esc(TYPES[type])}${["wr", "bwp", "bwa"].includes(type) ? ` · 목표 ${e.repMin}–${e.repMax}회` : ""}</div></div>
       <button class="icon-btn sm" data-act="moveex" data-id="${entry.id}" data-d="-1" aria-label="위로" ${idx === 0 ? "disabled" : ""}>↑</button>
       <button class="icon-btn sm" data-act="moveex" data-id="${entry.id}" data-d="1" aria-label="아래로" ${!next ? "disabled" : ""}>↓</button>
@@ -352,7 +433,9 @@ function vWorkout() {
         <div class="row"><button class="btn primary sm" type="submit">만들고 추가</button><button class="btn sm ghost" type="button" data-act="creating">취소</button></div></form>`
       : `<button class="btn sm ghost" data-act="creating">+ 새 종목 만들기</button>`}
     </section>` : "";
-  return `${sess}
+  const prs = dayPRs(day);
+  const summary = day.entries.length && ws.done && !sessionActive(day) ? `<section class="card stack"><b>${isToday ? "오늘" : fmtDate(S.date)} 운동 요약</b>${statRow(ws)}${prs.length ? `<div class="small"><b style="color:var(--pr)">신기록</b> ${prs.map((x) => `${esc(x.name)} <span class="muted">(${x.labels.join(" · ")})</span>`).join(", ")}</div>` : ""}</section>` : "";
+  return `${sess}${summary}
   <div class="sec-title">루틴<span class="lnk xs">${day.entries.length ? `<button class="btn sm ghost" data-act="saveroutine">${S.saveRoutine ? "취소" : "현재 운동을 루틴으로 저장"}</button>` : ""}</span></div>
   <section class="card stack">
     ${S.saveRoutine ? `<form id="routineForm" class="row" autocomplete="off"><input id="routineName" type="text" class="grow" placeholder="루틴 이름 (예: 등·이두)" required style="flex:1 1 160px"><button class="btn primary" type="submit">저장</button></form>` : ""}
@@ -457,51 +540,134 @@ function partWeek(end) {
   return res;
 }
 function bestOf(exId) { let w = 0, e = 0; for (const d of Object.values(D().days)) for (const en of d.entries) if (en.exId === exId) for (const s of en.sets) if (isWorking(s)) { w = Math.max(w, num(s.kg)); e = Math.max(e, e1rm(s.kg, s.reps)); } return { w, e }; }
-function vHistory() {
-  const today = todayStr(), t = targets(today), dates = []; for (let i = 13; i >= 0; i--) dates.push(shiftDate(today, -i));
-  const kc = dates.map((d) => D().days[d] ? foodTotals(D().days[d].foods).kcal : 0), pr = dates.map((d) => D().days[d] ? foodTotals(D().days[d].foods).p : 0);
-  const exIds = [...usedExIds()].filter((id) => Object.values(D().days).some((d) => d.entries.some((e) => e.exId === id))).sort((a, b) => ex(a).name.localeCompare(ex(b).name, "ko"));
-  if (!S.histEx || !exIds.includes(S.histEx)) S.histEx = exIds[0] || null;
-  let exChart = "", legend = "";
-  if (S.histEx) {
-    const x = ex(S.histEx), strength = ["wr", "bwp", "bwa"].includes(x.type);
-    const pts = Object.keys(D().days).sort().map((d) => { const en = D().days[d].entries.find((e) => e.exId === S.histEx); if (!en) return null; const st = entryStats(en, x.type, bwAt(d)); const main = strength ? st.best : x.type === "time" ? st.sec : x.type === "dist" ? st.km : st.reps; return main ? { d, main, top: st.top } : null; }).filter(Boolean).slice(-20);
-    const unit = strength ? "kg" : x.type === "time" ? "초" : x.type === "dist" ? "km" : "회";
-    exChart = pts.length >= 2 ? lineChart(pts.map((p) => shortDate(p.d)), strength && x.type !== "bwa" ? [{ vals: pts.map((p) => p.main), color: "var(--accent)" }, { vals: pts.map((p) => p.top), color: "var(--muted)" }] : [{ vals: pts.map((p) => p.main), color: "var(--accent)" }], unit) : `<div class="empty" style="padding:8px">이 종목 기록이 2회 이상 쌓이면 그래프가 그려집니다.</div>`;
-    legend = strength ? `<div class="legend"><span><span class="dot" style="background:var(--accent)"></span>추정 1RM${x.type !== "wr" ? "(체중 포함)" : ""}</span>${x.type !== "bwa" ? `<span><span class="dot" style="background:var(--muted)"></span>최고 중량</span>` : ""}</div>` : "";
+function exHistory(exId) {
+  const out = [];
+  for (const d of Object.keys(D().days).sort()) for (const e of D().days[d].entries) if (e.exId === exId && e.sets.some(isWorking)) out.push({ date: d, entry: e });
+  return out;
+}
+function weekTotals(mon) {
+  const t = { days: 0, sets: 0, vol: 0, dur: 0, runN: 0, runSec: 0, runKm: 0, parts: {}, prs: [] };
+  STRENGTH_PARTS.forEach((p) => { t.parts[p] = 0; });
+  for (let i = 0; i < 7; i++) {
+    const d = shiftDate(mon, i), day = D().days[d]; if (!day || !day.entries.length) continue;
+    const bw = bwAt(d), c = cardioOf(day);
+    if (workedStrength(day)) t.days++;
+    t.dur += dayStats(day).dur; if (c.n) t.runN++; t.runSec += c.sec; t.runKm += c.km;
+    for (const e of day.entries) {
+      const x = ex(e.exId); if (x.primary === "cardio") continue; const p = partOfEx(x);
+      for (const s of e.sets) if (isWorking(s)) { t.sets++; t.vol += setVolume(s, x.type, bw); if (t.parts[p] !== undefined) t.parts[p]++; }
+    }
+    for (const p of dayPRs(day)) t.prs.push({ ...p, date: d });
   }
-  const pw = partWeek(today), maxSets = Math.max(1, ...PARTS.map((p) => pw[p].sets));
+  return t;
+}
+function weekReport() {
+  const today = todayStr(), thisMon = mondayOf(today), mon = S.reportWeek && S.reportWeek <= thisMon ? S.reportWeek : thisMon;
+  const cur = weekTotals(mon), prev = weekTotals(shiftDate(mon, -7));
+  const planned = Object.values(D().settings.schedule || {}).filter(Boolean).length;
+  const delta = prev.vol ? Math.round((cur.vol - prev.vol) / prev.vol * 100) : null;
+  const maxSets = Math.max(1, ...STRENGTH_PARTS.map((p) => cur.parts[p]));
+  return `<div class="sec-title">주간 리포트</div>
+  <section class="card stack">
+    <div class="row" style="justify-content:space-between"><button class="icon-btn" data-act="wkprev" aria-label="이전 주">‹</button>
+      <b class="num" style="font-size:19px">${shortDate(mon)} – ${shortDate(shiftDate(mon, 6))}${mon === thisMon ? ` <span class="small muted" style="font-family:var(--font-body);font-weight:400">이번 주</span>` : ""}</b>
+      <button class="icon-btn" data-act="wknext" aria-label="다음 주" ${mon >= thisMon ? "disabled" : ""}>›</button></div>
+    <div class="stats">
+      <div class="stat"><div class="v">${cur.days}<span class="small muted">/${planned}</span></div><div class="k">운동한 날</div></div>
+      <div class="stat"><div class="v">${cur.sets}</div><div class="k">완료 세트</div></div>
+      <div class="stat"><div class="v">${r1(cur.vol / 1000)}<span class="small muted">t</span></div><div class="k">볼륨</div></div>
+      <div class="stat"><div class="v">${cur.dur >= 60000 ? Math.round(cur.dur / 60000) : "—"}<span class="small muted">${cur.dur >= 60000 ? "분" : ""}</span></div><div class="k">운동 시간</div></div>
+    </div>
+    <div class="small muted">${delta === null ? "지난주 기록이 없어 볼륨을 비교할 수 없습니다." : mon === thisMon ? `이번 주 볼륨은 지금까지 ${r1(cur.vol / 1000)}t로, 지난주 전체(${r1(prev.vol / 1000)}t)의 <b>${Math.round(cur.vol / prev.vol * 100)}%</b>입니다.` : `볼륨이 지난주보다 <b style="color:${delta >= 0 ? "var(--ok)" : "var(--warn)"}">${delta >= 0 ? "+" : ""}${delta}%</b> (${r1(prev.vol / 1000)}t → ${r1(cur.vol / 1000)}t)`}</div>
+    ${cur.runN ? `<div class="small">유산소 <b>${cur.runN}회</b> · ${Math.round(cur.runSec / 60)}분${cur.runKm ? ` · ${r1(cur.runKm)} km` : ""}</div>` : ""}
+    ${cur.sets ? STRENGTH_PARTS.filter((p) => cur.parts[p] || (D().settings.schedule && Object.values(D().settings.schedule).includes(p))).map((p) => `<div class="hbar"><span>${p}</span><span class="track"><i style="width:${cur.parts[p] / maxSets * 100}%"></i></span><span class="val">${cur.parts[p]}세트</span></div>`).join("") : `<div class="empty" style="padding:6px">이 주에는 운동 기록이 없습니다.</div>`}
+    ${cur.prs.length ? `<div class="small"><b style="color:var(--pr)">신기록 ${cur.prs.length}건</b><br>${cur.prs.map((p) => `${shortDate(p.date)} ${esc(p.name)} <span class="muted">(${p.labels.join(" · ")})</span>`).join("<br>")}</div>` : ""}
+  </section>`;
+}
+function vDiary(date) {
+  const day = D().days[date]; if (!day || !day.entries.length) { S.sub = null; return vHistory(); }
+  const ws = dayStats(day), part = dominantPart(day), prs = dayPRs(day), labels = groupLabels(day), bw = bwAt(date), run = cardioOf(day);
+  const start = day.session ? new Date(day.session.start) : null;
+  return `<button class="btn sm ghost back" data-act="subback">‹ 기록으로</button>
+  <section class="card stack">
+    <div class="xs muted">${fmtDate(date)}${start ? ` · ${pad(start.getHours())}:${pad(start.getMinutes())} 시작` : ""}</div>
+    <div class="plan-title">${part ? `${part} 운동` : "유산소"}</div>
+    ${statRow(ws)}
+    ${run.n ? `<div class="small">유산소 ${Math.round(run.sec / 60)}분${run.km ? ` · ${r1(run.km)} km` : ""}</div>` : ""}
+    ${prs.length ? `<div class="small"><b style="color:var(--pr)">신기록</b> ${prs.map((p) => `${esc(p.name)} <span class="muted">(${p.labels.join(" · ")})</span>`).join(", ")}</div>` : ""}
+  </section>
+  ${day.entries.map((e) => {
+    const x = ex(e.exId), st = entryStats(e, x.type, bw), flags = prFlags(e, date);
+    return `<section class="card stack">
+      <button class="linkish" data-act="exdetail" data-id="${esc(x.id)}">${labels[e.id] ? `<span class="sup-tag">${labels[e.id]}</span>` : ""}<b class="grow">${esc(x.name)}</b><span class="xs muted">${esc(partOfEx(x))} ›</span></button>
+      <div class="dsets">${e.sets.map((s, i) => `<span class="dset${s.done ? "" : " skip"}${flags[i] ? " pr" : ""}">${s.t !== "N" ? `<i>${s.t}</i>` : ""}${hasValues(s) ? setLine(s, x.type) : "—"}${s.rpe !== "" ? ` <em>RPE ${s.rpe}</em>` : ""}</span>`).join("")}</div>
+      ${e.note ? `<div class="xs muted">메모: ${esc(e.note)}</div>` : ""}
+      <div class="ex-foot">${exFoot(st, x.type)}</div>
+    </section>`; }).join("")}
+  <div class="xs muted">흐린 세트는 완료 표시를 하지 않은 세트입니다. W 워밍업 · F 실패 · D 드롭.</div>
+  <button class="btn block" data-act="editday" data-d="${date}">이 날 기록 수정</button>`;
+}
+function vExDetail(exId) {
+  const x = ex(exId), type = x.type, hist = exHistory(exId), strength = ["wr", "bwp", "bwa"].includes(type);
+  const rec = {};
+  for (const h of hist) { const bw = bwAt(h.date); for (const s of h.entry.sets) if (isWorking(s)) for (const [k, v] of Object.entries(prScores(s, type, bw))) if (v > (rec[k]?.v || 0)) rec[k] = { v, date: h.date, text: setLine(s, type) }; }
+  const unit = { e: "kg", w: "kg", v: "kg", r: "회", km: "km" };
+  const order = ["w", "e", "v", "r", "sec", "km"].filter((k) => rec[k]);
+  const pts = hist.map((h) => { const st = entryStats(h.entry, type, bwAt(h.date)); const main = strength ? st.best : type === "time" ? st.sec : type === "dist" ? st.km : st.reps; return main ? { d: h.date, main, top: st.top } : null; }).filter(Boolean).slice(-20);
+  const cu = strength ? "kg" : type === "time" ? "초" : type === "dist" ? "km" : "회";
+  const chart = pts.length >= 2 ? lineChart(pts.map((p) => shortDate(p.d)), strength && type !== "bwa" ? [{ vals: pts.map((p) => p.main), color: "var(--accent)" }, { vals: pts.map((p) => p.top), color: "var(--muted)" }] : [{ vals: pts.map((p) => p.main), color: "var(--accent)" }], cu)
+    : `<div class="empty" style="padding:8px">기록이 2회 이상 쌓이면 성장 그래프가 그려집니다.</div>`;
+  return `<button class="btn sm ghost back" data-act="subback">‹ 기록으로</button>
+  <section class="card stack">
+    <div class="plan-title">${esc(x.name)}</div>
+    <div class="xs muted">${esc(MUSCLES[x.primary] || "")}${(x.secondary || []).length ? ` (보조: ${x.secondary.map((m) => MUSCLES[m]).join(", ")})` : ""} · ${esc(EQUIP[x.equip] || "")} · ${esc(TYPES[type])} · ${hist.length}회 수행</div>
+    ${order.length ? `<div class="stats recs">${order.map((k) => `<div class="stat"><div class="k">${PR_LABEL[k]}</div><div class="v">${k === "sec" ? fmtSec(rec[k].v) : r1(rec[k].v)}<span class="small muted"> ${unit[k] || ""}</span></div><div class="xs muted">${rec[k].text} · ${shortDate(rec[k].date)}</div></div>`).join("")}</div>` : `<div class="small muted">완료한 세트가 생기면 최고 기록이 표시됩니다.</div>`}
+  </section>
+  <div class="sec-title">성장 그래프</div>
+  <section class="card stack">${chart}${pts.length >= 2 && strength ? `<div class="legend"><span><span class="dot" style="background:var(--accent)"></span>추정 1RM${type !== "wr" ? "(체중 포함)" : ""}</span>${type !== "bwa" ? `<span><span class="dot" style="background:var(--muted)"></span>최고 중량</span>` : ""}</div>` : ""}</section>
+  <div class="sec-title">전체 기록 (${hist.length})</div>
+  <section class="card">${hist.slice().reverse().map((h) => { const st = entryStats(h.entry, type, bwAt(h.date)), flags = prFlags(h.entry, h.date);
+    return `<button class="hrow" data-act="diary" data-d="${h.date}"><span class="row"><b class="grow">${fmtDate(h.date)}</b><span class="xs muted">${strength || type === "bw" ? `볼륨 ${Math.round(st.vol).toLocaleString()} kg` : ""} ›</span></span>
+      <span class="dsets">${h.entry.sets.filter((s) => s.done).map((s) => `<span class="dset${prFlagAt(h.entry, flags, s) ? " pr" : ""}">${s.t !== "N" ? `<i>${s.t}</i>` : ""}${setLine(s, type)}</span>`).join("")}</span></button>`; }).join("") || `<div class="empty" style="padding:8px">아직 완료한 기록이 없습니다.</div>`}</section>`;
+}
+const prFlagAt = (entry, flags, s) => !!flags[entry.sets.indexOf(s)];
+
+function vHistory() {
+  if (S.sub) return S.sub.k === "day" ? vDiary(S.sub.date) : vExDetail(S.sub.id);
   const b3 = BIG3.map((b) => ({ ...b, ...bestOf(b.id) })), b3w = b3.reduce((a, b) => a + b.w, 0), b3e = b3.reduce((a, b) => a + b.e, 0);
+  const lastOf = new Map();
+  for (const d of Object.keys(D().days).sort()) for (const e of D().days[d].entries) if (e.sets.some(isWorking)) lastOf.set(e.exId, d);
+  const exRows = [...lastOf.entries()].sort((a, b) => (a[1] < b[1] ? 1 : a[1] > b[1] ? -1 : ex(a[0]).name.localeCompare(ex(b[0]).name, "ko"))).map(([id, d]) => {
+    const x = ex(id), h = exHistory(id); let top = 0, reps = 0, sec = 0, km = 0;
+    for (const it of h) { const st = entryStats(it.entry, x.type, bwAt(it.date)); top = Math.max(top, st.top); reps = Math.max(reps, st.reps); sec = Math.max(sec, st.sec); km = Math.max(km, st.km); }
+    const best = x.type === "wr" || x.type === "bwp" ? `최고 ${top} kg` : x.type === "time" ? `최장 ${fmtSec(sec)}` : x.type === "dist" ? (km ? `최장 ${r1(km)} km` : `최장 ${fmtSec(sec)}`) : `최다 ${reps}회`;
+    return `<button class="pick" data-act="exdetail" data-id="${esc(id)}"><span class="grow"><b>${esc(x.name)}</b> <span class="xs muted">${esc(partOfEx(x))}</span></span><span class="xs muted">${best} · ${shortDate(d)} · ${h.length}회 ›</span></button>`;
+  }).join("");
   const metricInfo = { w: ["체중", "kg", "var(--fat)"], fat: ["체지방률", "%", "var(--carb)"], mm: ["골격근량", "kg", "var(--accent)"] };
   const bpts = Object.keys(D().days).filter((d) => D().days[d].body[S.bodyMetric]).sort().slice(-30);
-  const recent = Object.keys(D().days).filter((d) => hasContent(D().days[d])).sort().reverse().slice(0, 30);
+  const recent = Object.keys(D().days).filter((d) => D().days[d].entries.some((e) => e.sets.some((s) => s.done))).sort().reverse().slice(0, 40);
   return `<section class="card">${calendar()}</section>
-  <div class="sec-title">최근 7일 부위별 세트</div>
-  <section class="card stack">${PARTS.filter((p) => pw[p].sets || p !== "유산소").map((p) => `<div class="hbar"><span>${p}</span><span class="track"><i style="width:${pw[p].sets / maxSets * 100}%"></i></span><span class="val">${pw[p].sets}세트 · ${r1(pw[p].vol / 1000)}t</span></div>`).join("")}
-    <div class="xs muted">워밍업을 뺀 완료 세트, 주 근육 기준입니다.</div></section>
+  ${weekReport()}
+  <div class="sec-title">운동 일지</div>
+  <section class="card">${recent.length ? `<div class="hist-row hd"><span>날짜</span><span>부위</span><span>세트</span><span>볼륨 kg</span><span>시간</span></div>` + recent.map((d) => { const day = D().days[d], ws = dayStats(day); return `<button class="hist-row" data-act="diary" data-d="${d}"><span>${fmtDate(d)}</span><span>${dominantPart(day) || "유산소"}</span><span class="num">${ws.done}${ws.prs ? `<span style="color:var(--pr);font-size:11px"> PR</span>` : ""}</span><span class="num">${Math.round(ws.vol).toLocaleString()}</span><span class="num">${ws.dur >= 60000 ? Math.round(ws.dur / 60000) + "m" : "—"}</span></button>`; }).join("") : `<div class="empty" style="padding:8px">운동을 기록하면 날짜별 일지가 여기에 쌓입니다.</div>`}</section>
+  <div class="sec-title">종목별 기록</div>
+  <section class="card"><div class="picklist" style="max-height:none">${exRows || `<div class="empty" style="padding:8px">세트를 완료하면 종목별 최고 기록과 성장 그래프를 볼 수 있습니다.</div>`}</div></section>
   <div class="sec-title">3대 합계</div>
   <section class="card stack"><div class="b3">${b3.map((b) => `<div class="stat"><div class="k">${b.k}</div><div class="v">${b.w || "—"}</div><div class="xs muted">${b.e ? `1RM 추정 ${r1(b.e)}` : "기록 없음"}</div></div>`).join("")}</div>
     <div class="metric-head"><span class="small muted">합계 (최고 중량)</span><span><b>${b3w}</b> kg <span class="small muted">· 추정 1RM 합 ${r1(b3e)} kg</span></span></div></section>
-  <div class="sec-title">종목별 성장</div>
-  <section class="card stack">${exIds.length ? `<select id="histEx" data-bind="histex" aria-label="종목 선택">${exIds.map((id) => `<option value="${esc(id)}" ${id === S.histEx ? "selected" : ""}>${esc(ex(id).name)}</option>`).join("")}</select>${exChart}${legend}` : `<div class="empty" style="padding:8px">운동을 기록하면 종목별 추이가 여기에 표시됩니다.</div>`}</section>
-  <div class="sec-title">최근 14일 칼로리</div>
-  <section class="card">${barChart(dates.map(shortDate), kc, t.kcal, "var(--fg)")}<div class="legend"><span><span class="dot" style="background:var(--fg)"></span>섭취 kcal</span><span><span class="dot" style="background:var(--warn)"></span>목표 ${Math.round(t.kcal)}</span></div></section>
-  <div class="sec-title">최근 14일 단백질</div>
-  <section class="card">${barChart(dates.map(shortDate), pr, t.protein, "var(--accent)")}<div class="legend"><span><span class="dot" style="background:var(--accent)"></span>섭취 g</span><span><span class="dot" style="background:var(--warn)"></span>목표 ${Math.round(t.protein)} g</span></div></section>
   <div class="sec-title">체성분 추이</div>
   <section class="card stack"><div class="seg" role="group" aria-label="체성분 항목">${Object.entries(metricInfo).map(([k, v]) => `<button data-act="bodymetric" data-k="${k}" aria-pressed="${S.bodyMetric === k}">${v[0]}</button>`).join("")}</div>
-    ${bpts.length >= 2 ? lineChart(bpts.map(shortDate), [{ vals: bpts.map((d) => num(D().days[d].body[S.bodyMetric])), color: metricInfo[S.bodyMetric][2] }], metricInfo[S.bodyMetric][1]) : `<div class="empty" style="padding:8px">요약 화면에서 ${metricInfo[S.bodyMetric][0]}을 2번 이상 기록하면 추이가 그려집니다.</div>`}</section>
-  <div class="sec-title">날짜별 기록</div>
-  <section class="card">${recent.length ? `<div class="hist-row hd"><span>날짜</span><span>kcal</span><span>단백질</span><span>세트</span><span>시간</span></div>` + recent.map((d) => { const day = D().days[d], ft = foodTotals(day.foods), ws = dayStats(day); return `<button class="hist-row" data-act="openday" data-d="${d}"><span>${fmtDate(d)}</span><span class="num">${Math.round(ft.kcal)}</span><span class="num" style="color:var(--accent)">${r1(ft.p)}</span><span class="num">${ws.done}${ws.prs ? `<span style="color:var(--pr);font-size:11px"> PR</span>` : ""}</span><span class="num">${ws.dur >= 60000 ? Math.round(ws.dur / 60000) + "m" : "—"}</span></button>`; }).join("") : `<div class="empty" style="padding:8px">기록이 쌓이면 날짜별로 모아 보여 줍니다.</div>`}</section>`;
+    ${bpts.length >= 2 ? lineChart(bpts.map(shortDate), [{ vals: bpts.map((d) => num(D().days[d].body[S.bodyMetric])), color: metricInfo[S.bodyMetric][2] }], metricInfo[S.bodyMetric][1]) : `<div class="empty" style="padding:8px">홈 화면에서 ${metricInfo[S.bodyMetric][0]}을 2번 이상 기록하면 추이가 그려집니다.</div>`}</section>`;
 }
 
 /* ----- settings view ----- */
 function vSettings() {
+  const food = !!D().settings.showFood;
   const st = D().settings, t = targets(todayStr()), sexAdd = st.sex === "f" ? "− 161" : "+ 5", lastB = D().lastBackup ? new Date(D().lastBackup) : null, imp = S.pendingImport;
   const used = usedExIds(), customs = Object.values(D().customEx);
   return `
   ${!isStandalone() ? `<section class="card stack"><b>홈 화면에 설치</b>${installEvt ? `<button class="btn primary" data-act="install">앱으로 설치하기</button>` : `<div class="small muted">Chrome 오른쪽 위 ⋮ 메뉴 → <b>홈 화면에 추가</b> 또는 <b>앱 설치</b>를 누르세요.</div>`}</section>` : ""}
-  <div class="sec-title">신체 정보와 목표</div>
+  ${food ? `<div class="sec-title">신체 정보와 목표</div>
   <section class="card stack">
     <div class="grid2">
       <div class="field"><label for="sSex">성별</label><select id="sSex" data-bind="set" data-k="sex"><option value="m" ${st.sex === "m" ? "selected" : ""}>남</option><option value="f" ${st.sex === "f" ? "selected" : ""}>여</option></select></div>
@@ -525,17 +691,33 @@ function vSettings() {
     <div style="margin-top:4px"><b>④ 단백질</b> = 체중 × g/kg</div><code>${t.w} × ${st.gPerKg} = ${Math.round(t.protein)} g</code>
     <div style="margin-top:4px"><b>⑤ 탄수화물 목표</b> = 목표 kcal에서 단백질과 지방 몫(${st.fatPct}%)을 뺀 나머지</div><code>탄수 (${Math.round(t.kcal)} − ${Math.round(t.protein)}×4 − ${Math.round(t.fatG)}×9)÷4 = ${Math.round(t.carbG)} g</code>
   </div><div class="xs muted">체중은 ${t.src} 값을 사용합니다. 공식 값은 추정치이므로 2–3주 체중 변화를 보고 조정하세요.</div></section>
+` : ""}
+  <div class="sec-title">주간 계획</div>
+  <section class="card stack">
+    <div class="sched">${[1, 2, 3, 4, 5, 6, 0].map((wd) => `<div class="field"><label for="sc-${wd}">${WD[wd]}요일</label><select id="sc-${wd}" data-bind="sched" data-wd="${wd}"><option value="">휴식</option>${STRENGTH_PARTS.map((pt) => `<option ${st.schedule[wd] === pt ? "selected" : ""}>${pt}</option>`).join("")}</select></div>`).join("")}</div>
+    <div class="grid2">
+      <div class="field"><label for="sCx">매일 하는 유산소</label><select id="sCx" data-bind="cardio" data-k="exId">${allEx(D()).filter((e) => e.primary === "cardio").map((e) => `<option value="${esc(e.id)}" ${e.id === st.cardio.exId ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select></div>
+      <div class="field"><label for="sCm">시간 (분, 0이면 끔)</label><input id="sCm" inputmode="numeric" data-bind="cardio" data-k="min" value="${st.cardio.min}"></div>
+    </div>
+    <div class="xs muted">홈 화면에서 그날 부위 운동을 바로 시작합니다. 같은 부위를 마지막으로 한 날의 종목을 불러옵니다.</div>
+  </section>
   <div class="sec-title">운동 설정</div>
   <section class="card stack">
-    <div class="grid2"><div class="field"><label for="sBar">바벨 무게 kg</label><input id="sBar" inputmode="decimal" data-bind="set" data-k="barKg" value="${st.barKg}"></div></div>
+    <div class="grid2">
+      <div class="field"><label for="sBar">바벨 무게 kg</label><input id="sBar" inputmode="decimal" data-bind="set" data-k="barKg" value="${st.barKg}"></div>
+      <div class="field"><label for="sRec">회복 시간 기준 (시간)</label><input id="sRec" inputmode="numeric" data-bind="set" data-k="recoveryHours" value="${st.recoveryHours}"></div>
+      ${food ? "" : `<div class="field"><label for="sW">기본 체중 (kg)</label><input id="sW" inputmode="decimal" data-bind="set" data-k="weight" value="${st.weight}"></div>`}
+    </div>
+    <div class="xs muted">회복도는 세트의 피로가 기준 시간마다 약 63%씩 줄어든다고 가정해 계산합니다. 회복이 빠르게 느껴지면 숫자를 줄이세요.</div>
     <label class="row small"><input type="checkbox" data-bind="flag" data-k="prefillRec" ${st.prefillRec ? "checked" : ""}> 종목을 추가할 때 추천 무게·횟수로 미리 채우기</label>
     <label class="row small"><input type="checkbox" data-bind="flag" data-k="wakeLock" ${st.wakeLock ? "checked" : ""}> 운동 중에는 화면이 꺼지지 않게</label>
+    <label class="row small"><input type="checkbox" data-bind="flag" data-k="showFood" ${food ? "checked" : ""}> 식단 기록 사용 (칼로리·단백질·탄수)</label>
   </section>
   <div class="sec-title">내 종목 (${customs.length})</div>
   <section class="card">${customs.map((c) => `<div class="list-item"><div class="grow"><b>${esc(c.name)}</b><div class="xs muted">${esc(partOfEx(c))} · ${esc(TYPES[c.type])}${used.has(c.id) ? " · 기록 있음" : ""}</div></div>${used.has(c.id) ? "" : `<button class="btn sm ${S.confirm === c.id ? "danger" : "ghost"}" data-act="delcustom" data-id="${esc(c.id)}">${S.confirm === c.id ? "정말 삭제" : "삭제"}</button>`}</div>`).join("") || `<div class="small muted">운동 화면의 종목 검색에서 "새 종목 만들기"로 추가한 종목이 여기에 모입니다.</div>`}</section>
   <div class="sec-title">루틴 (${D().routines.length})</div>
   <section class="card">${D().routines.map((r) => `<div class="list-item"><div class="grow"><b>${esc(r.name)}</b><div class="xs muted">${r.items.map((i) => esc(ex(i.exId).name)).join(" · ")}</div></div><button class="btn sm ${S.confirm === r.id ? "danger" : "ghost"}" data-act="delroutine" data-id="${r.id}">${S.confirm === r.id ? "정말 삭제" : "삭제"}</button></div>`).join("") || `<div class="small muted">운동 화면에서 "현재 운동을 루틴으로 저장"을 누르면 여기에 모입니다.</div>`}</section>
-  <div class="sec-title">내 식사 (${D().myMeals.length})</div>
+  ${food ? `<div class="sec-title">내 식사 (${D().myMeals.length})</div>
   <section class="card">${D().myMeals.map((m) => { const s = foodTotals(m.items); return `<div class="list-item"><div class="grow"><b>${esc(m.name)}</b><div class="xs muted">${m.items.map((i) => esc(i.name)).join(" · ")} · ${Math.round(s.kcal)} kcal · 단백질 ${r1(s.p)} g</div></div><button class="btn sm ${S.confirm === m.id ? "danger" : "ghost"}" data-act="delcombo" data-id="${m.id}">${S.confirm === m.id ? "정말 삭제" : "삭제"}</button></div>`; }).join("") || `<div class="small muted">식단 화면에서 끼니 옆 "내 식사로 저장"을 누르면 여기에 모입니다.</div>`}</section>
   <div class="sec-title">내 음식 (${D().myFoods.length})</div>
   <section class="card">${D().myFoods.map((f) => S.editFood === f.id ? `<form class="list-item stack editFood" data-id="${f.id}" style="display:grid" autocomplete="off">
@@ -544,6 +726,7 @@ function vSettings() {
       <div class="grid3"><div class="field"><label for="ef-k">kcal</label><input id="ef-k" inputmode="decimal" value="${f.kcal}"></div><div class="field"><label for="ef-p">단백질</label><input id="ef-p" inputmode="decimal" value="${f.p}"></div><div class="field"><label for="ef-c">탄수</label><input id="ef-c" inputmode="decimal" value="${f.c}"></div></div>
       <div class="row"><button class="btn primary sm" type="submit">저장</button><button class="btn sm ghost" type="button" data-act="editfood" data-id="">취소</button><span class="grow"></span><button class="btn sm ${S.confirm === f.id ? "danger" : "ghost"}" type="button" data-act="delmy" data-id="${f.id}">${S.confirm === f.id ? "정말 삭제" : "삭제"}</button></div></form>`
     : `<div class="list-item"><div class="grow">${esc(f.name)}<div class="xs muted">${f.basis === "g" ? "100 g당 " : "1회 "}${f.kcal} kcal · <span style="color:var(--accent);font-weight:700">단백질 ${f.p} g</span> · 탄수 ${f.c} g</div></div><button class="btn sm ghost" data-act="editfood" data-id="${f.id}">수정</button></div>`).join("") || `<div class="small muted">식단 화면에서 직접 입력한 음식이 여기에 모입니다.</div>`}</section>
+` : ""}
   <div class="sec-title">백업과 내보내기</div>
   <section class="card stack">
     <div class="small">기록은 이 휴대폰 안(IndexedDB)에만 저장됩니다. 휴대폰을 바꾸거나 브라우저 데이터를 지우기 전에 백업 파일을 저장해 두세요.</div>
@@ -554,17 +737,22 @@ function vSettings() {
     ${imp ? `<div class="banner" style="border-style:solid"><span class="grow">불러온 백업: 기록 ${imp.days}일 · 루틴 ${imp.routines}개 · 내 음식 ${imp.foods}개. 어떻게 적용할까요?</span>
       <div class="row"><button class="btn sm primary" data-act="applyimport" data-mode="merge">합치기</button><button class="btn sm danger" data-act="applyimport" data-mode="replace">전체 교체</button><button class="btn sm ghost" data-act="cancelimport">취소</button></div>
       <div class="xs muted" style="flex-basis:100%">합치기: 같은 날짜는 백업 내용으로 바뀌고 나머지는 유지됩니다. 전체 교체: 지금 기록을 지우고 백업으로 바꿉니다.</div></div>` : ""}
-    <div class="grid2"><button class="btn" data-act="csvwork">운동 기록 CSV</button><button class="btn" data-act="csvfood">식단 기록 CSV</button></div>
+    <div class="grid2"><button class="btn" data-act="csvwork">운동 기록 CSV</button>${food ? `<button class="btn" data-act="csvfood">식단 기록 CSV</button>` : ""}</div>
     <div class="xs muted">CSV는 엑셀에서 바로 열립니다.</div>
   </section>
   <div class="xs muted" style="text-align:center">헬스 노트 v${APP_VERSION} · 종목 ${allEx(D()).length}개</div>`;
 }
 
 /* ---------- actions ---------- */
-function go(tab) { if (tab === S.tab) return; S.tab = tab; S.confirm = null; history.pushState({ tab }, ""); render(); window.scrollTo(0, 0); }
-window.addEventListener("popstate", (e) => { S.tab = (e.state && e.state.tab) || "summary"; S.confirm = null; render(); });
+function openSub(sub) {
+  S.sub = sub; S.confirm = null;
+  if (S.tab !== "history") { S.tab = "history"; history.pushState({ tab: "history" }, ""); } else history.pushState({ tab: "history", sub: true }, "");
+  render(); window.scrollTo(0, 0);
+}
+function go(tab) { if (tab === S.tab) return; S.tab = tab; S.sub = null; S.confirm = null; history.pushState({ tab }, ""); render(); window.scrollTo(0, 0); }
+window.addEventListener("popstate", (e) => { S.tab = (e.state && e.state.tab) || "summary"; S.sub = null; S.confirm = null; render(); });
 history.replaceState({ tab: S.tab }, "");
-document.querySelector(".tabs").addEventListener("click", (e) => { const b = e.target.closest(".tab"); if (b) go(b.dataset.tab); });
+document.querySelector(".tabs").addEventListener("click", (e) => { const b = e.target.closest(".tab"); if (!b) return; if (S.sub && b.dataset.tab === "history") { S.sub = null; render(); window.scrollTo(0, 0); } else go(b.dataset.tab); });
 $("#prevDay").onclick = () => { S.date = shiftDate(S.date, -1); S.confirm = null; S.editEx = null; render(); };
 $("#nextDay").onclick = () => { S.date = shiftDate(S.date, 1); S.confirm = null; S.editEx = null; render(); };
 $("#todayBtn").onclick = () => { S.date = todayStr(); render(); };
@@ -602,6 +790,17 @@ $view.addEventListener("click", (ev) => {
   const confirmDel = (id, fn) => { if (S.confirm === id) { fn(); S.confirm = null; return true; } S.confirm = id; render(); return false; };
   switch (act) {
     case "goto": go(b.dataset.tab); return;
+    case "startplan": {
+      const today = getDay(todayStr()), r = startPlan(today); S.date = todayStr(); save();
+      toast(r.n ? `${r.part} 운동 ${r.n}종목을 불러왔습니다. 지난 기록으로 무게·횟수를 채웠습니다.` : r.part ? `${r.part} 종목을 골라 주세요.` : "종목을 골라 주세요.");
+      go("workout"); return;
+    }
+    case "logcardio": { const r = logCardio(getDay(todayStr())); toast(`${r.name} ${r.min}분 기록 완료 · 거리는 운동 탭에서 적을 수 있습니다.`); break; }
+    case "diary": openSub({ k: "day", date: b.dataset.d }); return;
+    case "exdetail": openSub({ k: "ex", id: b.dataset.id }); return;
+    case "subback": S.sub = null; render(); window.scrollTo(0, 0); return;
+    case "editday": S.date = b.dataset.d; go("workout"); return;
+    case "wkprev": case "wknext": { const cur = S.reportWeek || mondayOf(todayStr()); S.reportWeek = shiftDate(cur, act === "wknext" ? 7 : -7); render(); return; }
     case "install": if (installEvt) { installEvt.prompt(); installEvt.userChoice.finally(() => { installEvt = null; render(); }); } return;
     case "dismissmig": D().migratedFrom.seen = true; break;
     case "startsess": day.session = { start: Date.now(), end: null }; break;
@@ -665,7 +864,7 @@ $view.addEventListener("click", (ev) => {
     case "editfood": S.editFood = b.dataset.id || null; S.efBasis = null; render(); return;
     case "efbasis": S.efBasis = b.dataset.b; render(); return;
     case "delmy": if (!confirmDel(b.dataset.id, () => { D().myFoods = D().myFoods.filter((x) => x.id !== b.dataset.id); S.editFood = null; })) return; break;
-    case "openday": S.date = b.dataset.d; go("summary"); return;
+    case "openday": { const dd = D().days[b.dataset.d]; if (dd && dd.entries.length) openSub({ k: "day", date: b.dataset.d }); else { S.date = b.dataset.d; go("workout"); } return; }
     case "calprev": case "calnext": { const [y, m] = S.calMonth.split("-").map(Number), t = new Date(y, m - 1 + (act === "calnext" ? 1 : -1), 1); S.calMonth = `${t.getFullYear()}-${pad(t.getMonth() + 1)}`; render(); return; }
     case "bodymetric": S.bodyMetric = b.dataset.k; render(); return;
     case "export": download(`health-note-backup-${stamp()}.json`, backupText(), "application/json"); D().lastBackup = Date.now(); toast("백업 파일을 저장했습니다. 다운로드 폴더를 확인하세요."); break;
@@ -718,7 +917,8 @@ $view.addEventListener("change", (e) => {
   const el = e.target, bind = el.dataset.bind; if (!bind) return;
   if (bind === "set") { const k = el.dataset.k; let v = el.value; if (k === "kcalOverride") v = v.trim() === "" ? null : num(v); else if (k !== "sex") v = num(v); D().settings[k] = v; save(); el.tagName === "SELECT" ? render() : requestRender(); }
   else if (bind === "flag") { D().settings[el.dataset.k] = el.checked; save(); render(); }
-  else if (bind === "histex") { S.histEx = el.value; render(); }
+  else if (bind === "sched") { D().settings.schedule[el.dataset.wd] = el.value || null; save(); render(); }
+  else if (bind === "cardio") { D().settings.cardio[el.dataset.k] = el.dataset.k === "min" ? num(el.value) : el.value; save(); el.tagName === "SELECT" ? render() : requestRender(); }
 });
 $view.addEventListener("submit", (e) => {
   e.preventDefault();

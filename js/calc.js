@@ -8,6 +8,9 @@ export function floorTo(x, inc) { if (!inc) return r1(x); return Math.round(Math
 /* ---------- dates ---------- */
 export function parseD(s) { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); }
 export function daysBetween(a, b) { return Math.round((parseD(b) - parseD(a)) / 86400000); }
+export function ymd(t) { const p = (n) => String(n).padStart(2, "0"); return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`; }
+// Monday of the week containing the date (weeks run Mon–Sun).
+export function mondayOf(s) { const t = parseD(s); t.setDate(t.getDate() - (t.getDay() + 6) % 7); return ymd(t); }
 
 /* ---------- sets ---------- */
 // Set types: N normal, W warm-up, F failure, D drop. Warm-ups never count toward stats.
@@ -41,7 +44,7 @@ export function entryStats(entry, type, bw) {
 
 // One comparable "score" per set for personal records, by exercise type.
 export function prScores(s, type, bw) {
-  if (type === "wr" || type === "bwp") return { e: e1rm(setLoad(s, type, bw), s.reps), w: num(s.kg) };
+  if (type === "wr" || type === "bwp") return { e: e1rm(setLoad(s, type, bw), s.reps), w: num(s.kg), v: setVolume(s, type, bw) };
   if (type === "bw") return { r: num(s.reps) };
   if (type === "time") return { sec: num(s.sec) };
   if (type === "dist") return { km: num(s.km) };
@@ -70,7 +73,7 @@ export function recommend(last, ex, today) {
       // lighter back-off / pyramid sets stay as they were
     } else if (reps < repMin) reps = repMin;
     else reps = Math.min(repMax, reps + 1);
-    return { t: s.t === "F" ? "N" : s.t, kg: roundTo(kg, inc), reps };
+    return { t: s.t === "F" ? "N" : s.t, kg: r1(kg), reps };   // weights are never re-rounded: 4.5 kg stays 4.5 kg
   });
   if (allTop) { up = true; note = ex.type === "bwa" ? `모든 세트 ${repMax}회 달성 → 보조 ${inc} kg 줄이기` : `모든 세트 ${repMax}회 달성 → ${inc} kg 올리기`; }
   else note = `같은 무게로 ${repMax}회까지 횟수 늘리기`;
@@ -79,6 +82,20 @@ export function recommend(last, ex, today) {
     note = `${gap}일 쉬었으니 10% 낮춰 시작`; up = false;
   }
   return { sets, up, note, repMin, repMax };
+}
+
+/* ---------- recovery ----------
+   Fatigue per key = sum of set weights decayed by exp(-hours/tau); recovery % = 100 * (1 - min(1, fatigue / cap)).
+   items: [{ at: ms, w: { key: weight } }]. tau (48 h) and cap (10 sets) are assumptions, adjustable by the caller. */
+export function recovery(items, now, tauH = 48, cap = 10) {
+  const f = {};
+  for (const it of items) {
+    const dt = (now - it.at) / 3600000; if (dt < 0 || dt > 168) continue;
+    const k = Math.exp(-dt / tauH);
+    for (const [key, w] of Object.entries(it.w)) f[key] = (f[key] || 0) + w * k;
+  }
+  const out = {}; for (const [k, v] of Object.entries(f)) out[k] = Math.round(100 * (1 - Math.min(1, v / cap)));
+  return out;
 }
 
 /* ---------- plates & warm-ups ---------- */

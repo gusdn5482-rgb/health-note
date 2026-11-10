@@ -67,7 +67,7 @@ main { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: m
 .dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; }
 .tabs { background: var(--surface); border-top: 1px solid var(--line);
   padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px); }
-.tabs-in { max-width: 560px; margin: 0 auto; display: grid; grid-template-columns: repeat(5, 1fr); }
+.tabs-in { max-width: 560px; margin: 0 auto; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
 .tab { background: none; border: 0; padding: 9px 0 10px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 12px; color: var(--muted); }
 .tab svg { width: 22px; height: 22px; }
 .tab[aria-current="page"] { color: var(--accent); font-weight: 700; }
@@ -219,6 +219,36 @@ input:focus-visible, select:focus-visible, button:focus-visible, textarea:focus-
 .set.k-time { grid-template-columns: 34px minmax(0,1fr) 40px 28px; }
 .set.k-dist { grid-template-columns: 34px minmax(0,1fr) minmax(0,1fr) 40px 28px; }
 .macros.two { grid-template-columns: 1fr 1fr; }
+/* v3.1: home plan, week strip, recovery, diary */
+.plan-title { font-size: 26px; font-weight: 700; line-height: 1.2; text-wrap: balance; }
+.btn.big { padding: 13px 12px; font-size: 16px; font-weight: 700; }
+.runrow { border-top: 1px solid var(--line); padding-top: 10px; }
+.okmark { color: var(--ok); font-weight: 700; font-size: 14px; }
+.week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.wk { position: relative; display: grid; gap: 1px; justify-items: center; padding: 6px 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: var(--fg); cursor: pointer; min-width: 0; }
+.wk:disabled { cursor: default; opacity: 1; }
+.wk .wd { font-size: 11px; color: var(--muted); }
+.wk .pt { font-size: 13px; font-weight: 700; white-space: nowrap; }
+.wk .mk { font-family: var(--font-num); font-size: 15px; font-weight: 700; height: 18px; line-height: 18px; }
+.wk.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.wk.on .wd { color: var(--accent-ink); opacity: .8; }
+.wk.today { outline: 2px solid var(--fg); outline-offset: 1px; }
+.rn { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--carb); display: inline-block; }
+.hbar .track i.lo { background: var(--warn); } .hbar .track i.mid { background: var(--carb); } .hbar .track i.hi { background: var(--ok); }
+.recent { display: grid; gap: 4px; text-align: left; width: 100%; cursor: pointer; color: var(--fg); }
+.back { justify-self: start; align-self: flex-start; }
+.linkish { display: flex; gap: 8px; align-items: center; width: 100%; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; font-size: 16px; color: var(--fg); }
+button.ex-title { background: none; border: 0; padding: 0; text-align: left; cursor: pointer; color: var(--fg); }
+.dsets { display: flex; flex-wrap: wrap; gap: 5px; }
+.dset { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-size: 16px; font-weight: 600; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; }
+.dset i { font-style: normal; color: var(--carb); margin-right: 4px; font-size: 13px; }
+.dset em { font-style: normal; font-family: var(--font-body); font-size: 11px; font-weight: 400; color: var(--muted); }
+.dset.skip { opacity: .45; }
+.dset.pr { border-color: var(--pr); background: var(--pr-soft); }
+.hrow { display: grid; gap: 6px; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--line); padding: 10px 0; cursor: pointer; color: var(--fg); }
+.hrow:first-child { border-top: 0; padding-top: 0; }
+.stats.recs { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
+.sched { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .ty.F { color: var(--warn); border-color: var(--warn); }
 .rec { display: flex; gap: 8px; align-items: center; background: var(--accent-soft); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
 .rec.up b { color: var(--accent); }
@@ -235,7 +265,7 @@ input[type="search"] { background: var(--surface); border: 1px solid var(--line)
 <body>
 <header class="top">
   <div class="top-in">
-    <h1 id="viewTitle">요약</h1>
+    <h1 id="viewTitle">홈</h1>
     <div class="datenav" id="dateNav">
       <button class="icon-btn" id="prevDay" aria-label="이전 날">‹</button>
       <span class="d" id="dateLabel">—</span>
@@ -250,7 +280,7 @@ input[type="search"] { background: var(--surface); border: 1px solid var(--line)
 <div class="dock">
   <nav class="tabs" aria-label="화면">
     <div class="tabs-in">
-      <button class="tab" data-tab="summary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg>요약</button>
+      <button class="tab" data-tab="summary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/></svg>홈</button>
       <button class="tab" data-tab="workout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9v6M6 6v12M18 6v12M21 9v6M6 12h12"/></svg>운동</button>
       <button class="tab" data-tab="food"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 11h16a8 8 0 0 1-16 0zM8 7c0-2 2-2 2-4M13 7c0-2 2-2 2-4"/></svg>식단</button>
       <button class="tab" data-tab="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19h16M7 16V10M12 16V6M17 16v-4"/></svg>기록</button>
