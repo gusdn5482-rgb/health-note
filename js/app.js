@@ -3,7 +3,7 @@ import { num, r1, e1rm, isWorking, entryStats, setVolume, prScores, recommend, r
 import { MUSCLES, PARTS, MUSCLE_PART, PART_MUSCLE, EQUIP, EQUIP_INC, TYPES } from "./exercises.js";
 import * as store from "./store.js";
 
-const APP_VERSION = "3.1.0";
+const APP_VERSION = "3.2.0";
 const { MEALS, uid, norm, getEx, allEx, partOfEx, normFoodEntry, normMyFood, normDay } = store;
 const ACTIVITY = [
   { v: 1.2, label: "거의 안 움직임 (×1.2)" }, { v: 1.375, label: "주 1–3회 운동 (×1.375)" },
@@ -35,7 +35,7 @@ function toast(msg, pr) { const t = $("#toast"); t.textContent = msg; t.classNam
 const S = {
   data: store.defaultData(), ready: false, tab: "summary", date: todayStr(), meal: mealByClock(), calMonth: todayStr().slice(0, 7),
   histEx: null, bodyMetric: "w", confirm: null, editFood: null, efBasis: null, fBasis: "sv", saveRoutine: false, saveMeal: null,
-  pendingImport: null, showPaste: false, pickerOpen: false, pickQ: "", pickPart: null, creating: false, editEx: null, plateFor: null, storageOk: true,
+  pop: null, pendingImport: null, showPaste: false, pickerOpen: false, pickQ: "", pickPart: null, creating: false, editEx: null, plateFor: null, storageOk: true,
   sub: null, reportWeek: null
 };
 const D = () => S.data;
@@ -178,7 +178,7 @@ function render() {
   let banner = "";
   if (!S.storageOk) banner += `<div class="banner">이 브라우저에서는 기록을 저장할 수 없습니다. 시크릿 모드라면 일반 창에서 열어 주세요.</div>`;
   $view.innerHTML = banner + ({ summary: vHome, workout: vWorkout, food: vFood, history: vHistory, settings: vSettings }[S.tab])();
-  updateWakeLock();
+  updateWakeLock(); S.pop = null;
 }
 function bar(val, max, cls) {
   const pct = max > 0 ? Math.min(100, val / max * 100) : 0, over = max > 0 && val > max * 1.05 && cls !== "p";
@@ -258,6 +258,46 @@ function statRow(ws) {
     <div class="stat"><div class="v" style="${ws.prs ? "color:var(--pr)" : ""}">${ws.prs}</div><div class="k">신기록</div></div>
   </div>`;
 }
+const CHEERS = ["오늘도 가볍게 시작해 봐요!", "한 세트만 해도 성공이에요", "지난번보다 딱 한 개만 더!", "운동 가기 딱 좋은 날이에요", "시작이 반이에요, 가 볼까요?", "오늘의 나, 조금 더 튼튼하게!", "몸이 기억할 거예요, 출발!"];
+// Original mascot: a dumbbell with a face. mood = smile | happy | sleepy.
+function mascot(mood) {
+  const eyes = mood === "happy" ? `<path d="M46 44q5-6 10 0M64 44q5-6 10 0" fill="none" stroke="var(--fg)" stroke-width="3" stroke-linecap="round"/>`
+    : mood === "sleepy" ? `<path d="M46 43h9M65 43h9" fill="none" stroke="var(--fg)" stroke-width="3" stroke-linecap="round"/>`
+    : `<circle cx="51" cy="42" r="3.4" fill="var(--fg)"/><circle cx="69" cy="42" r="3.4" fill="var(--fg)"/><circle cx="52.2" cy="40.8" r="1.1" fill="var(--surface)"/><circle cx="70.2" cy="40.8" r="1.1" fill="var(--surface)"/>`;
+  const mouth = mood === "happy" ? `<path d="M53 50q7 10 14 0z" fill="var(--accent-deep)" stroke="var(--fg)" stroke-width="2" stroke-linejoin="round"/>`
+    : mood === "sleepy" ? `<circle cx="60" cy="53" r="2.6" fill="none" stroke="var(--fg)" stroke-width="2"/>`
+    : `<path d="M54 50q6 6 12 0" fill="none" stroke="var(--fg)" stroke-width="2.6" stroke-linecap="round"/>`;
+  const extra = mood === "happy" ? `<path d="M14 8l2 5 5 2-5 2-2 5-2-5-5-2 5-2zM104 66l1.5 4 4 1.5-4 1.5-1.5 4-1.5-4-4-1.5 4-1.5z" fill="var(--carb)"/>`
+    : mood === "sleepy" ? `<text x="92" y="16" font-size="13" fill="var(--muted)" style="font-family:var(--font-display)">z</text><text x="101" y="9" font-size="9" fill="var(--muted)" style="font-family:var(--font-display)">z</text>` : "";
+  return `<svg class="mascot" viewBox="0 0 120 90" role="img" aria-label="덤벨 캐릭터"><rect x="20" y="40" width="80" height="10" rx="5" fill="var(--accent-deep)"/>
+    <rect x="6" y="24" width="13" height="42" rx="6.5" fill="var(--accent)"/><rect x="19" y="15" width="14" height="60" rx="7" fill="var(--accent)"/>
+    <rect x="87" y="15" width="14" height="60" rx="7" fill="var(--accent)"/><rect x="101" y="24" width="13" height="42" rx="6.5" fill="var(--accent)"/>
+    <circle cx="60" cy="45" r="25" fill="var(--surface)" stroke="var(--accent)" stroke-width="3"/>
+    <ellipse cx="44.5" cy="51" rx="5" ry="3" fill="var(--accent)" opacity=".4"/><ellipse cx="75.5" cy="51" rx="5" ry="3" fill="var(--accent)" opacity=".4"/>
+    ${eyes}${mouth}${extra}</svg>`;
+}
+function confetti() {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const c = document.createElement("canvas"), dpr = Math.min(2, window.devicePixelRatio || 1), W = window.innerWidth, H = window.innerHeight;
+  c.width = W * dpr; c.height = H * dpr; c.style.cssText = "position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:30"; document.body.appendChild(c);
+  const g = c.getContext("2d"); g.scale(dpr, dpr);
+  const cs = getComputedStyle(document.documentElement), cols = ["--accent", "--pr", "--carb", "--ok", "--accent-soft"].map((v) => cs.getPropertyValue(v).trim());
+  const ps = Array.from({ length: 70 }, () => ({ x: W / 2 + (Math.random() - 0.5) * 80, y: H * 0.45, vx: (Math.random() - 0.5) * 11, vy: -Math.random() * 12 - 4, s: 5 + Math.random() * 7, r: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.3, col: cols[Math.floor(Math.random() * cols.length)], heart: Math.random() < 0.45 }));
+  const t0 = performance.now();
+  const frame = (t) => {
+    const k = (t - t0) / 1600; g.clearRect(0, 0, W, H); if (k >= 1) { c.remove(); return; }
+    for (const p of ps) {
+      p.vy += 0.35; p.x += p.vx; p.y += p.vy; p.r += p.vr;
+      g.save(); g.translate(p.x, p.y); g.rotate(p.r); g.globalAlpha = Math.max(0, 1 - k * k); g.fillStyle = p.col;
+      if (p.heart) { const z = p.s / 10; g.beginPath(); g.moveTo(0, 3 * z); g.bezierCurveTo(-10 * z, -4 * z, -5 * z, -11 * z, 0, -5 * z); g.bezierCurveTo(5 * z, -11 * z, 10 * z, -4 * z, 0, 3 * z); g.fill(); }
+      else g.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2);
+      g.restore();
+    }
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+  setTimeout(() => c.remove(), 2500);
+}
 const recCls = (v) => (v < 50 ? "lo" : v < 80 ? "mid" : "hi");
 
 function vHome() {
@@ -271,9 +311,11 @@ function vHome() {
   const strip = [0, 1, 2, 3, 4, 5, 6].map((i) => {
     const d = shiftDate(mon, i), dd = D().days[d], p = planFor(d), w = workedStrength(dd), r = cardioOf(dd).n > 0, has = !!(dd && dd.entries.length), wd = WD[parseD(d).getDay()];
     if (p) planned++; if (w) worked++; if (r) runs++;
-    return `<button class="wk${w ? " on" : ""}${d === today ? " today" : ""}" ${has ? `data-act="diary" data-d="${d}"` : "disabled"} aria-label="${wd}요일 ${p || "휴식"}${w ? ", 운동 완료" : ""}${r ? ", 유산소 완료" : ""}"><span class="wd">${wd}</span><span class="pt">${p || "휴식"}</span><span class="mk">${w ? "✓" : ""}</span>${r ? `<i class="rn"></i>` : ""}</button>`;
+    return `<button class="wk${w ? " on" : ""}${d === today ? " today" : ""}" ${has ? `data-act="diary" data-d="${d}"` : "disabled"} aria-label="${wd}요일 ${p || "휴식"}${w ? ", 운동 완료" : ""}${r ? ", 유산소 완료" : ""}"><span class="wd">${wd}</span><span class="pt">${p || "휴식"}</span><span class="mk">${w ? "♥" : ""}</span>${r ? `<i class="rn"></i>` : ""}</button>`;
   }).join("");
   const fresh = STRENGTH_PARTS.filter((p) => rec[p] >= 90 && p !== "코어");
+  const allDone = strength.length > 0 && ws.done === ws.sets, mood = allDone ? "happy" : !part && !strength.length ? "sleepy" : "smile";
+  const cheer = allDone ? "오늘 운동 끝! 정말 수고했어요" : strength.length ? "좋아요, 이대로 쭉 가요!" : !part ? "푹 쉬는 것도 운동이에요" : CHEERS[Math.floor(parseD(today).getTime() / 86400000) % CHEERS.length];
   const lastD = Object.keys(D().days).filter((d) => d < today && D().days[d].entries.length).sort().pop();
   let recent = "";
   if (lastD) {
@@ -287,8 +329,8 @@ function vHome() {
   if (st.showFood) { const t = targets(today), ft = foodTotals(day.foods); foodCard = `<div class="sec-title">식단</div><section class="card stack"><div class="metric"><div class="metric-head"><span class="small">칼로리</span><span><b>${Math.round(ft.kcal).toLocaleString()}</b> <span class="muted small">/ ${Math.round(t.kcal).toLocaleString()} kcal</span></span></div>${bar(ft.kcal, t.kcal, "")}</div><div class="small muted">단백질 ${r1(ft.p)} / ${Math.round(t.protein)} g · 탄수 ${r1(ft.c)} / ${Math.round(t.carbG)} g</div></section>`; }
   return `${migrationNote()}${install}${backupNag()}
   <section class="card stack plan" aria-label="오늘 운동">
-    <div class="xs muted">${fmtDate(today)}</div>
-    <div class="plan-title">${part ? `${part} 하는 날` : "쉬는 날"}</div>
+    <div class="plan-head"><div class="grow stack" style="gap:5px"><div class="xs muted">${fmtDate(today)}</div>
+      <div class="plan-title">${part ? `${part} 하는 날` : "쉬는 날"}</div><div class="bubble">${cheer}</div></div>${mascot(mood)}</div>
     ${strength.length ? `${statRow(ws)}<div class="small muted">${strength.map((e) => esc(ex(e.exId).name)).join(" · ")}</div>
       <button class="btn primary block" data-act="goto" data-tab="workout">${ws.done < ws.sets ? "이어서 기록" : "오늘 기록 보기"}</button>`
     : `<button class="btn primary block big" data-act="startplan">${part ? `${part} 운동 시작` : "자유 운동 시작"}</button>
@@ -362,7 +404,7 @@ function exCard(entry, idx, day, labels) {
         return `<div class="set k-${type} ${s.done ? "done" : ""} ${flags[i] ? "isPr" : ""}">
           <button class="ty ${s.t}" data-act="type" data-id="${entry.id}" data-i="${i}" aria-label="세트 종류 바꾸기 (일반·워밍업·실패·드롭)">${s.t === "N" ? nth : s.t}${flags[i] ? `<span class="badge">PR</span>` : ""}</button>
           ${cols.map(([f]) => `<input class="${f === "rpe" ? "rpe" : ""}" id="${f}-${entry.id}-${i}" inputmode="decimal" value="${setCellVal(s, f)}" placeholder="${ps ? (setCellVal(ps, f) === "" ? "" : setCellVal(ps, f)) : f === "rpe" ? "-" : ""}" data-bind="setf" data-f="${f}" data-id="${entry.id}" data-i="${i}" aria-label="${i + 1}세트 ${f}">`).join("")}
-          <button class="chk" aria-pressed="${s.done}" data-act="done" data-id="${entry.id}" data-i="${i}" aria-label="${i + 1}세트 완료">✓</button>
+          <button class="chk${S.pop === entry.id + ":" + i ? " pop" : ""}" aria-pressed="${s.done}" data-act="done" data-id="${entry.id}" data-i="${i}" aria-label="${i + 1}세트 완료">✓</button>
           <button class="x" data-act="delset" data-id="${entry.id}" data-i="${i}" aria-label="${i + 1}세트 삭제">×</button>
         </div>`; }).join("")}
     </div>
@@ -370,7 +412,7 @@ function exCard(entry, idx, day, labels) {
       <button class="btn sm" data-act="addset" data-id="${entry.id}">+ 세트</button>
       ${["wr", "bwp"].includes(type) ? `<button class="btn sm ghost" data-act="warmup" data-id="${entry.id}">워밍업 계산</button>` : ""}
       ${isBar ? `<button class="btn sm ghost" data-act="plates" data-id="${entry.id}" aria-pressed="${S.plateFor === entry.id}">원판</button>` : ""}
-      ${next ? `<button class="btn sm ghost" data-act="superset" data-id="${entry.id}">${linked ? "슈퍼세트 해제" : "다음 종목과 슈퍼세트"}</button>` : ""}
+      ${next ? `<button class="btn sm ghost" data-act="superset" data-id="${entry.id}">${linked ? "슈퍼세트 해제" : "슈퍼세트 묶기"}</button>` : ""}
       <span class="grow"></span>
       <button class="btn sm ${conf ? "danger" : "ghost"}" data-act="delex" data-id="${entry.id}">${conf ? "정말 삭제" : "삭제"}</button>
     </div>
@@ -804,7 +846,7 @@ $view.addEventListener("click", (ev) => {
     case "install": if (installEvt) { installEvt.prompt(); installEvt.userChoice.finally(() => { installEvt = null; render(); }); } return;
     case "dismissmig": D().migratedFrom.seen = true; break;
     case "startsess": day.session = { start: Date.now(), end: null }; break;
-    case "endsess": if (day.session) day.session.end = Date.now(); toast(`운동 종료 · ${fmtDur(dayStats(day).dur)}`); break;
+    case "endsess": if (day.session) day.session.end = Date.now(); toast(`운동 끝! 오늘도 수고했어요 · ${fmtDur(dayStats(day).dur)}`); confetti(); break;
     case "resumesess": if (day.session) day.session.end = null; break;
     case "togglepicker": S.pickerOpen = !S.pickerOpen; S.creating = false; render(); if (S.pickerOpen) setTimeout(() => { const el = $("#pickQ"); if (el) el.focus(); }, 0); return;
     case "pickpart": S.pickPart = b.dataset.p || null; render(); return;
@@ -833,12 +875,12 @@ $view.addEventListener("click", (ev) => {
     case "type": { const s = findEntry(b.dataset.id).sets[+b.dataset.i]; s.t = SET_CYCLE[s.t] || "N"; break; }
     case "done": {
       const en = findEntry(b.dataset.id), i = +b.dataset.i, s = en.sets[i], x = ex(en.exId);
-      s.done = !s.done; s.at = s.done ? Date.now() : null;
+      s.done = !s.done; s.at = s.done ? Date.now() : null; S.pop = s.done ? en.id + ":" + i : null;
       if (s.done) {
         if (!hasValues(s)) { const last = lastSession(en.exId, S.date), ps = last && last.sets[i]; if (ps) Object.assign(s, { kg: ps.kg, reps: ps.reps, sec: ps.sec, km: ps.km }); }
         if (S.date === todayStr()) { if (!day.session) day.session = { start: Date.now(), end: null }; else if (day.session.end) day.session.end = null; }
         pbCache = new Map(); const f = prFlags(en, S.date)[i];
-        if (f) toast(`신기록! ${x.name} ${f.map((k) => PR_LABEL[k]).join(" · ")}`, true);
+        if (f) { toast(`신기록! ${x.name} ${f.map((k) => PR_LABEL[k]).join(" · ")}`, true); confetti(); }
       }
       break;
     }
